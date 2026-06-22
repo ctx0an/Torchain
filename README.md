@@ -4,17 +4,9 @@
 
 **Fast, system-wide Tor anonymizer with an enterprise-grade Kali-themed dashboard.**
 
-[![CI](https://github.com/ctx0an/torchain/actions/workflows/ci.yml/badge.svg)](https://github.com/ctx0an/torchain/actions/workflows/ci.yml)
-![Python](https://img.shields.io/badge/python-3.8%2B-367BF0)
-![Platform](https://img.shields.io/badge/platform-Linux-0B0E14)
-![License](https://img.shields.io/badge/license-MIT-2ECC71)
-![RAM](https://img.shields.io/badge/idle%20RAM-~15MB-17B2C3)
-
 *Route every packet through Tor. Verify there are no leaks. Look good doing it.*
 
-<div align="center">
-  <img src="img/torchain-icon.png" alt="torchain" width="64" height="64">
-</div>
+<img src="docs/torchain-icon.png" alt="torchain" width="64" height="64">
 
 </div>
 
@@ -141,11 +133,43 @@ torchain config --set start_on_boot=true
 
 Launch with `torchain gui`. The window title is simply **torchain**.
 
-<div align="center">
-  <img src="img/torchain-128.png" alt="torchain icon" width="128" height="128">
-  <br>
-  <em>App icon — procedurally generated in pure Python (no binary assets in repo).</em>
-</div>
+The window uses a unique, procedurally-generated icon (an "onion + chain link" mark in the
+Kali palette) — generated in pure Python, so no binary assets ship in the repo.
+
+The entire UI is **event-driven** — no animation timers, no polling storms. It only
+redraws a widget when the underlying value actually changes.
+
+### Dashboard
+
+One-click connect/disconnect, live bootstrap progress, PID / firewall / bootstrap tiles.
+
+![torchain dashboard](docs/dashboard.png)
+
+### Bridges
+
+Pick a transport and add/remove/clear custom bridge lines.
+
+![torchain bridges](docs/bridges.png)
+
+### Settings
+
+Exit country, IPv6 blocking, bridges, MAC/hostname spoofing, watchdog, boot, auto-rotation.
+
+![torchain settings](docs/settings.png)
+
+### Logs
+
+Live, scrollable tail of the rotating log file.
+
+![torchain logs](docs/logs.png)
+
+### Leak Test
+
+Run the full or quick suite, color-coded pass/fail — verify your real IP, DNS, and IPv6 never escape Tor.
+
+![torchain leak test](docs/leaktest.png)
+
+The dashboard sidebar gives you:
 
 - **Dashboard** — one-click connect/disconnect, live bootstrap progress, PID / firewall / bootstrap tiles.
 - **Circuits** — live Tor circuit table (scrollable).
@@ -154,11 +178,6 @@ Launch with `torchain gui`. The window title is simply **torchain**.
 - **Settings** — exit country, IPv6 blocking, bridges, MAC/hostname spoofing, watchdog, boot, auto-rotation.
 - **Advanced** — enable boot, start/stop the watchdog, scan for old versions; shows your VM/bare-metal environment.
 - **Logs** — live, scrollable tail of the rotating log file.
-
-The window uses a unique, procedurally-generated icon (an "onion + chain link" mark in the Kali palette) — generated in pure Python, so no binary assets ship in the repo.
-
-The entire UI is **event-driven** — no animation timers, no polling storms. It only
-redraws a widget when the underlying value actually changes.
 
 ---
 
@@ -184,7 +203,7 @@ byte-compilation on every push.
 
 Created by **ctx0an**, built with **Claude Opus 4.8**.
 
-If torchain is useful to you, please ⭐ **[star it on GitHub](https://github.com/ctx0an/torchain)** — there's also a one-click **★ Star on GitHub** button in the app's sidebar.
+If torchain is useful to you, please ⭐ [**star it on GitHub**](https://github.com/ctx0an/torchain) — there's also a one-click **★ Star on GitHub** button in the app's sidebar.
 
 ## License
 
