@@ -190,6 +190,7 @@ The dashboard sidebar gives you:
 - **Reversible**: spoofing saves original values and restores them on `stop`.
 
 See [`SECURITY.md`](SECURITY.md) for the disclosure policy.
+
 ⚠️ torchain protects the network layer only. Read [`LIMITATION.md`](LIMITATION.md) for the full threat model and limitations.
 ---
 
