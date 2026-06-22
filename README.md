@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🧅 torchain
+# 🧅 Torchain
 
 **Fast, system-wide Tor anonymizer with an enterprise-grade Kali-themed dashboard.**
 
