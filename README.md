@@ -1,0 +1,194 @@
+<div align="center">
+
+# 🧅 torchain
+
+**Fast, system-wide Tor anonymizer with an enterprise-grade Kali-themed dashboard.**
+
+[![CI](https://github.com/ctx0an/torchain/actions/workflows/ci.yml/badge.svg)](https://github.com/ctx0an/torchain/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.8%2B-367BF0)
+![Platform](https://img.shields.io/badge/platform-Linux-0B0E14)
+![License](https://img.shields.io/badge/license-MIT-2ECC71)
+![RAM](https://img.shields.io/badge/idle%20RAM-~15MB-17B2C3)
+
+*Route every packet through Tor. Verify there are no leaks. Look good doing it.*
+
+<div align="center">
+  <img src="img/torchain-icon.png" alt="torchain" width="64" height="64">
+</div>
+
+</div>
+
+---
+
+## Why v5
+
+v5 builds on the v4 rewrite and makes the whole experience **fully automatic**:
+
+| Goal | How v5 delivers |
+| --- | --- |
+| ⚡ **Fast startup** | Thin bash launcher + lazy-imported Python package. No work happens until you ask for it. |
+| 🪶 **Low memory** | Pure standard library. No background animation loops. The GUI idles at single-digit CPU and ~15 MB RAM. |
+| 🚀 **Fast Tor connect** | Persistent guard state, `AvoidDiskWrites`, tuned circuit timeouts, and live bootstrap polling over the control port. |
+| 🔑 **Fully automatic sudo** | Every privileged command — including the GUI — auto-elevates. The GUI forwards `DISPLAY`/`XAUTHORITY` and grants the X cookie, so no more `Invalid MIT-MAGIC-COOKIE-1`. |
+| 🐕 **Self-healing watchdog** | A robust daemon that repairs tor/firewall if they drop and enforces automatic identity rotation. |
+| 🔌 **Run on boot** | One command (or checkbox) to start torchain at boot via systemd, with an rc.local/cron fallback. |
+| 🌉 **Rich bridges** | obfs4 / snowflake / meek_lite / webtunnel plus add/remove/list of fully custom bridge lines. |
+| 🔁 **Migration manager** | Detects ANY older torchain install, removes it, and installs v5 in its place. |
+| 🖥️ **VM + bare-metal** | Detects VMware/VirtualBox/KVM/Xen/Hyper-V/containers and adapts (e.g. MAC-spoof rollback under hypervisor port security). |
+| 🛡️ **Robust error handling** | A typed exception hierarchy with human hints. Every failure rolls back **fail-closed** — you are never left half-protected. |
+| 🎨 **Enterprise design** | A Kali-Linux-themed dashboard with a unique generated app icon, sidebar navigation, status pills, stat tiles, and scrollable tables. |
+
+---
+
+## Architecture
+
+```
+torchain            ← thin bash launcher (auto-elevates everything, incl. GUI X-forwarding)
+tc4/
+├── cli.py          ← argparse dispatcher, friendly errors
+├── engine.py       ← orchestrates tor + firewall + spoofing + watchdog (fail-closed)
+├── torrc.py        ← generates a fast-bootstrapping torrc (multi-transport)
+├── firewall.py     ← transparent-proxy iptables rules (dedicated chains)
+├── torctl.py       ← minimal Tor control-port client (cookie auth)
+├── spoof.py        ← reversible, VM-safe MAC / hostname spoofing
+├── bridges.py      ← obfs4/snowflake/meek_lite/webtunnel + custom bridges
+├── watchdog.py     ← self-healing daemon (auto-repair + auto-rotate)
+├── boot.py         ← run-on-boot (systemd unit, rc.local/cron fallback)
+├── migrate.py      ← detect + remove older torchain, install v5 in its place
+├── platform.py     ← VM / bare-metal / container + init-system detection
+├── icon.py         ← procedurally-generated PNG app icon (no binary assets)
+├── leaktest.py     ← DNS / IPv6 / exit-IP / firewall checks
+├── config.py       ← typed config, atomic JSON persistence
+├── theme.py        ← Kali design system (colors, fonts, spacing)
+├── gui.py          ← event-driven Tk dashboard (no busy loops)
+├── log.py          ← rotating file + colored console logging
+├── errors.py       ← typed exceptions with hints
+└── sysutil.py      ← safe subprocess wrappers (always time-bounded)
+```
+
+Each module does one thing. Everything is dependency-light and unit-testable.
+
+---
+
+## Install
+
+```bash
+git clone https://github.com/ctx0an/torchain.git
+cd torchain
+sudo ./setup.sh
+```
+
+The installer pulls dependencies (`tor`, `iptables`, `iproute2`, `python3`, `python3-tk`),
+creates the dedicated `debian-tor` user, installs to `/usr/share/torchain`, and links
+`torchain` into your `PATH`.
+
+---
+
+## Usage
+
+```bash
+torchain doctor        # pre-flight system check
+sudo torchain start    # route ALL traffic through Tor (live bootstrap bar)
+torchain status        # show current protection state
+sudo torchain rotate   # request a brand-new Tor identity
+torchain leaktest      # verify nothing escapes Tor
+sudo torchain stop     # restore normal networking
+torchain gui           # launch the Kali-themed dashboard
+```
+
+### Emergency kill switch
+
+```bash
+sudo torchain panic          # drop ALL non-loopback traffic instantly
+sudo torchain panic disarm   # restore
+```
+
+### Bridges (censorship circumvention)
+
+```bash
+torchain bridge type obfs4                 # obfs4|snowflake|meek_lite|webtunnel|custom
+torchain bridge add 'obfs4 1.2.3.4:443 <FP> cert=... iat-mode=0'
+torchain bridge list
+torchain bridge remove 0                   # by index (or paste the exact line)
+torchain bridge enable
+```
+
+### Watchdog, boot & migration
+
+```bash
+torchain watchdog start      # self-healing daemon (auto-repair + rotate)
+torchain watchdog status
+torchain boot enable         # start torchain automatically at boot
+torchain migrate --scan      # show any older torchain installs that would be removed
+torchain migrate             # remove older installs and put v5 in their place
+```
+
+### Configuration
+
+```bash
+torchain config                          # list all settings
+torchain config --set exit_country=us    # pin exit nodes to a country
+torchain config --set block_ipv6=true
+torchain config --set spoof_mac=true
+torchain config --set watchdog_enabled=true
+torchain config --set auto_rotate_minutes=10
+torchain config --set start_on_boot=true
+```
+
+---
+
+## The dashboard
+
+Launch with `torchain gui`. The window title is simply **torchain**.
+
+<div align="center">
+  <img src="img/torchain-128.png" alt="torchain icon" width="128" height="128">
+  <br>
+  <em>App icon — procedurally generated in pure Python (no binary assets in repo).</em>
+</div>
+
+- **Dashboard** — one-click connect/disconnect, live bootstrap progress, PID / firewall / bootstrap tiles.
+- **Circuits** — live Tor circuit table (scrollable).
+- **Bridges** — pick a transport and add/remove/clear custom bridge lines.
+- **Leak Test** — run the full or quick suite, color-coded pass/fail.
+- **Settings** — exit country, IPv6 blocking, bridges, MAC/hostname spoofing, watchdog, boot, auto-rotation.
+- **Advanced** — enable boot, start/stop the watchdog, scan for old versions; shows your VM/bare-metal environment.
+- **Logs** — live, scrollable tail of the rotating log file.
+
+The window uses a unique, procedurally-generated icon (an "onion + chain link" mark in the Kali palette) — generated in pure Python, so no binary assets ship in the repo.
+
+The entire UI is **event-driven** — no animation timers, no polling storms. It only
+redraws a widget when the underlying value actually changes.
+
+---
+
+## Security model
+
+- **Fail-closed**: if any start step fails, firewall rules and tor are rolled back so
+  you are never left partially exposed.
+- **No leaks by default**: IPv6 egress is blocked, DNS is forced through Tor's `DNSPort`,
+  and all non-Tor TCP is dropped.
+- **Reversible**: spoofing saves original values and restores them on `stop`.
+
+See [`SECURITY.md`](SECURITY.md) for the disclosure policy.
+
+---
+
+## Contributing
+
+Issues and PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) and the
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). CI runs ShellCheck, `bash -n`, and Python
+byte-compilation on every push.
+
+## Credits
+
+Created by **ctx0an**, built with **Claude Opus 4.8**.
+
+If torchain is useful to you, please ⭐ **[star it on GitHub](https://github.com/ctx0an/torchain)** — there's also a one-click **★ Star on GitHub** button in the app's sidebar.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
+
+> **Disclaimer:** torchain is a tool for privacy and security research. No tool makes
+> you perfectly anonymous. Understand your threat model and use responsibly and legally.
