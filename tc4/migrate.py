@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import shutil
 
-from . import BIN_LINK, SHARE_DIR, __version__
+from . import BIN_LINK, BIN_LINK_ALT, SHARE_DIR, __version__
 from .log import get_logger
 from .sysutil import run, run_ok, which
 
@@ -100,8 +100,8 @@ def purge(self_dir: str | None = None, keep_logs: bool = True) -> list:
         if os.path.lexists(b):
             if b.endswith("/tc") and not _is_torchain_alias(b):
                 continue
-            if b == BIN_LINK and self_dir:
-                continue  # we'll relink this ourselves
+            if (b == BIN_LINK or b == BIN_LINK_ALT) and self_dir:
+                continue  # we'll relink these ourselves
             try:
                 os.remove(b)
                 report.append(f"removed binary {b}")
@@ -157,6 +157,14 @@ def install_self(src_dir: str) -> list:
         report.append(f"linked {BIN_LINK}")
     except OSError as exc:
         report.append(f"could not link {BIN_LINK}: {exc}")
+    # Fallback symlink in /usr/bin (always on sudo's secure_path).
+    try:
+        if os.path.lexists(BIN_LINK_ALT):
+            os.remove(BIN_LINK_ALT)
+        os.symlink(os.path.join(SHARE_DIR, "torchain"), BIN_LINK_ALT)
+        report.append(f"linked {BIN_LINK_ALT}")
+    except OSError:
+        pass
     # Write the icon + desktop entry (best-effort).
     try:
         from . import icon

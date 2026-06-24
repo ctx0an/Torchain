@@ -23,6 +23,7 @@ WATCHDOG_LOG = os.path.join(LOG_DIR, "watchdog.log")
 # Canonical install locations (used by the migration manager).
 SHARE_DIR = "/usr/share/torchain"
 BIN_LINK = "/usr/local/bin/torchain"
+BIN_LINK_ALT = "/usr/bin/torchain"
 
 # Default local ports for the dedicated tor instance.
 TRANS_PORT = 9040

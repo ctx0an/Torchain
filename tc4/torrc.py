@@ -11,6 +11,7 @@ Design choices for speed + low memory:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 
 from . import DATA_DIR
@@ -25,29 +26,59 @@ def _plugin_path(*names: str) -> str | None:
     return None
 
 
-def _transport_line(cfg: Config) -> str | None:
-    """Build the ClientTransportPlugin line for the selected transport."""
+def _transport_for_line(line: str) -> str | None:
+    m = re.match(r"^(?:bridge\s+)?(obfs4|snowflake|meek_lite|webtunnel)\b", line.strip(), re.I)
+    return m.group(1).lower() if m else None
+
+
+def _transport_lines(cfg: Config) -> list[str]:
+    """Build ClientTransportPlugin lines for every transport we actually need.
+
+    Instead of registering only the transport named in ``bridge_type``, we scan
+    the actual bridge lines and emit a plugin for every distinct transport
+    found. This fixes the case where a user pastes a webtunnel bridge line
+    while ``bridge_type`` is still the default ``obfs4`` -- tor would reject
+    the config because no ``ClientTransportPlugin webtunnel exec`` was present.
+    """
+    needed: list[str] = []
+
+    # Collect transports referenced by the actual bridge lines.
+    for br in cfg.custom_bridges:
+        t = _transport_for_line(br)
+        if t and t not in needed:
+            needed.append(t)
+
+    # Always include the configured type so plain bridges (without a PT prefix)
+    # also get a plugin assigned.
     bt = cfg.bridge_type
-    if bt in ("obfs4", "meek_lite", "custom"):
-        path = _plugin_path("obfs4proxy", "lyrebird") or "/usr/bin/obfs4proxy"
-        # 'custom' lines are usually obfs4, so register obfs4+meek_lite.
-        return f"ClientTransportPlugin obfs4,meek_lite exec {path}"
-    if bt == "snowflake":
-        path = _plugin_path("snowflake-client", "snowflake") or "/usr/bin/snowflake-client"
-        return f"ClientTransportPlugin snowflake exec {path}"
-    if bt == "webtunnel":
-        path = _plugin_path("webtunnel-client", "webtunnel") or "/usr/bin/webtunnel"
-        return f"ClientTransportPlugin webtunnel exec {path}"
-    return None
+    if bt not in needed and bt != "custom":
+        needed.insert(0, bt)
+
+    out: list[str] = []
+    seen_lines: set[str] = set()
+    for t in needed:
+        if t in ("obfs4", "meek_lite"):
+            path = _plugin_path("obfs4proxy", "lyrebird") or "/usr/bin/obfs4proxy"
+            line = f"ClientTransportPlugin obfs4,meek_lite exec {path}"
+        elif t == "snowflake":
+            path = _plugin_path("snowflake-client", "snowflake") or "/usr/bin/snowflake-client"
+            line = f"ClientTransportPlugin snowflake exec {path}"
+        elif t == "webtunnel":
+            path = _plugin_path("webtunnel-client", "webtunnel") or "/usr/bin/webtunnel-client"
+            line = f"ClientTransportPlugin webtunnel exec {path}"
+        else:
+            continue
+        if line not in seen_lines:
+            seen_lines.add(line)
+            out.append(line)
+    return out
 
 
 def _bridge_lines(cfg: Config) -> list[str]:
     if not cfg.use_bridges:
         return []
     lines = ["UseBridges 1"]
-    plug = _transport_line(cfg)
-    if plug:
-        lines.append(plug)
+    lines.extend(_transport_lines(cfg))
     for br in cfg.custom_bridges:
         br = br.strip()
         if br and not br.startswith("#"):

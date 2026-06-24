@@ -10,6 +10,7 @@ Key differences from the Linux torrc:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 
 from . import DATA_DIR, LOG_DIR
@@ -37,33 +38,54 @@ def _plugin_path(tor_dir: str | None, *names: str) -> str | None:
     return None
 
 
-def _transport_line(cfg: Config, tor_dir: str | None) -> str | None:
+def _transport_for_line(line: str) -> str | None:
+    m = re.match(r"^(?:bridge\s+)?(obfs4|snowflake|meek_lite|webtunnel)\b", line.strip(), re.I)
+    return m.group(1).lower() if m else None
+
+
+def _transport_lines(cfg: Config, tor_dir: str | None) -> list[str]:
+    needed: list[str] = []
+
+    for br in cfg.custom_bridges:
+        t = _transport_for_line(br)
+        if t and t not in needed:
+            needed.append(t)
+
     bt = cfg.bridge_type
-    if bt in ("obfs4", "meek_lite", "custom"):
-        path = _plugin_path(tor_dir, "obfs4proxy", "lyrebird")
-        if path:
-            path = path.replace("\\", "\\\\")
-            return f'ClientTransportPlugin obfs4,meek_lite exec "{path}"'
-    elif bt == "snowflake":
-        path = _plugin_path(tor_dir, "snowflake-client", "snowflake")
-        if path:
-            path = path.replace("\\", "\\\\")
-            return f'ClientTransportPlugin snowflake exec "{path}"'
-    elif bt == "webtunnel":
-        path = _plugin_path(tor_dir, "webtunnel-client", "webtunnel")
-        if path:
-            path = path.replace("\\", "\\\\")
-            return f'ClientTransportPlugin webtunnel exec "{path}"'
-    return None
+    if bt not in needed and bt != "custom":
+        needed.insert(0, bt)
+
+    out: list[str] = []
+    seen_lines: set[str] = set()
+    for t in needed:
+        if t in ("obfs4", "meek_lite"):
+            path = _plugin_path(tor_dir, "obfs4proxy", "lyrebird")
+            if not path:
+                continue
+            line = f'ClientTransportPlugin obfs4,meek_lite exec "{path.replace("\\", "\\\\")}"'
+        elif t == "snowflake":
+            path = _plugin_path(tor_dir, "snowflake-client", "snowflake")
+            if not path:
+                continue
+            line = f'ClientTransportPlugin snowflake exec "{path.replace("\\", "\\\\")}"'
+        elif t == "webtunnel":
+            path = _plugin_path(tor_dir, "webtunnel-client", "webtunnel")
+            if not path:
+                continue
+            line = f'ClientTransportPlugin webtunnel exec "{path.replace("\\", "\\\\")}"'
+        else:
+            continue
+        if line not in seen_lines:
+            seen_lines.add(line)
+            out.append(line)
+    return out
 
 
 def _bridge_lines(cfg: Config, tor_dir: str | None) -> list[str]:
     if not cfg.use_bridges:
         return []
     lines = ["UseBridges 1"]
-    plug = _transport_line(cfg, tor_dir)
-    if plug:
-        lines.append(plug)
+    lines.extend(_transport_lines(cfg, tor_dir))
     for br in cfg.custom_bridges:
         br = br.strip()
         if br and not br.startswith("#"):

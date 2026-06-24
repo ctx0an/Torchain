@@ -210,6 +210,17 @@ def cmd_bridge(args) -> int:
     elif args.bridge_cmd == "type":
         bridges.set_type(args.line)
         print(_c("✓", "green"), f"bridge type set to {args.line}")
+    elif args.bridge_cmd == "fetch":
+        count = len(bridges.append_fetched(
+            transport=args.transport, url=args.url).custom_bridges)
+        print(_c("✓", "green"), f"bridges fetched ({count} in config)")
+    elif args.bridge_cmd == "test":
+        results = bridges.test_bridges(timeout=args.timeout)
+        alive = sum(1 for _, ok, _ in results if ok)
+        print(f"  tested {len(results)} bridge(s) — {alive} reachable, {len(results) - alive} dead")
+        for line, ok, info in results:
+            icon = _c("✓", "green") if ok else _c("✗", "red")
+            print(f"  {icon} {info}")
     elif args.bridge_cmd == "enable":
         bridges.enable(True)
         print(_c("✓", "green"), "bridges enabled")
@@ -325,6 +336,14 @@ def build_parser() -> argparse.ArgumentParser:
     brs.add_parser("clear", help="remove all custom bridges")
     bt = brs.add_parser("type", help="set transport type")
     bt.add_argument("line", metavar="TYPE", help="obfs4|snowflake|meek_lite|webtunnel|custom")
+    bf = brs.add_parser("fetch", help="fetch obfs4 bridges from the Tor Project")
+    bf.add_argument("--transport", "-t", default="obfs4",
+                    help="transport type (default: obfs4)")
+    bf.add_argument("--url", "-u", default=None,
+                    help="custom bridge source URL (default: Tor Project moat API)")
+    btst = brs.add_parser("test", help="test which bridges are reachable")
+    btst.add_argument("--timeout", "-t", type=float, default=5.0,
+                      help="TCP connect timeout in seconds (default: 5)")
     brs.add_parser("enable", help="enable bridges")
     brs.add_parser("disable", help="disable bridges")
     br.set_defaults(fn=cmd_bridge)

@@ -250,8 +250,9 @@ class TorChainGUI:
         tk.Label(bar, text="Active Circuits", bg=P.bg, fg=P.text,
                  font=font(14, bold=True)).pack(side="left")
         self._btn(bar, "REFRESH", self._refresh_circuits, kind="ghost").pack(side="right")
-        self.circ_tree = self._make_tree(v, ("id", "status", "path"),
-                                         ("ID", "STATUS", "PATH"), (60, 120, 600))
+        self.circ_tree = self._make_tree(v, ("id", "status", "hops", "path"),
+                                         ("ID", "STATUS", "#", "PATH (IP · nickname · country)"),
+                                         (60, 120, 40, 560))
 
     def _build_leaktest(self):
         v = tk.Frame(self.content, bg=P.bg)
@@ -349,6 +350,8 @@ class TorChainGUI:
         self._btn(brow, "ADD BRIDGE", self._add_bridge).pack(side="left")
         self._btn(brow, "REMOVE SELECTED", self._remove_bridge, kind="ghost").pack(side="left", padx=SPACE["sm"])
         self._btn(brow, "CLEAR ALL", self._clear_bridges, kind="danger").pack(side="left")
+        self._btn(brow, "TEST", self._test_bridges, kind="ghost").pack(side="left", padx=SPACE["sm"])
+        self._btn(brow, "FETCH FROM TOR PROJECT", self._fetch_bridges, kind="ghost").pack(side="left", padx=SPACE["sm"])
         self.bridge_tree = self._make_tree(v, ("line",), ("CUSTOM BRIDGE LINE",), (760,))
 
     def _build_advanced(self):
@@ -414,6 +417,35 @@ class TorChainGUI:
         from . import bridges as b
         self.cfg = b.clear(self.cfg)
         self._refresh_bridges()
+
+    def _test_bridges(self):
+        from . import bridges as b
+        def _work():
+            try:
+                results = b.test_bridges(cfg=self.cfg)
+                alive = sum(1 for _, ok, _ in results if ok)
+                lines = [f"{'✓' if ok else '✗'} {info}" for _, ok, info in results]
+                report = f"{alive}/{len(results)} bridges reachable\n" + "\n".join(lines)
+                self.root.after(0, lambda: self._notify(report))
+            except TorChainError as exc:
+                self.root.after(0, lambda: self._notify(str(exc)))
+        self._notify("Testing bridges...")
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _fetch_bridges(self):
+        from . import bridges as b
+        def _work():
+            try:
+                self.cfg = b.append_fetched(cfg=self.cfg)
+                self.root.after(0, self._fetch_done)
+            except TorChainError as exc:
+                self.root.after(0, lambda: self._notify(exc))
+        self._notify("Fetching bridges from Tor Project...")
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _fetch_done(self):
+        self._refresh_bridges()
+        self.sub_status.configure(text="Bridges fetched from Tor Project.", fg=P.ok)
 
     def _refresh_bridges(self):
         self.bridge_tree.delete(*self.bridge_tree.get_children())
@@ -678,17 +710,31 @@ class TorChainGUI:
 
     def _refresh_circuits(self):
         def load():
-            from .torctl import ControlClient
-            with ControlClient(timeout=3) as c:
-                return c.circuits()
-        def show(rows):
+            try:
+                from .torctl import ControlClient
+                with ControlClient(timeout=5) as c:
+                    return c.circuit_details()
+            except Exception:
+                return None
+        def show(circuits):
             self.circ_tree.delete(*self.circ_tree.get_children())
-            for ln in rows or []:
-                parts = ln.split(" ", 2)
-                cid = parts[0] if parts else "?"
-                stt = parts[1] if len(parts) > 1 else ""
-                path = parts[2] if len(parts) > 2 else ""
-                self.circ_tree.insert("", "end", values=(cid, stt, path))
+            if circuits is None:
+                self.circ_tree.insert("", "end", values=("—", "OFFLINE", "", "tor is not running"))
+                return
+            for circ in circuits or []:
+                hops = circ.get("hops", [])
+                path_parts = []
+                for h in hops:
+                    ip = h.get("ip", "?")
+                    nick = h.get("nickname", "?")[:15]
+                    cc = h.get("country", "??")
+                    path_parts.append(f"{ip} ({nick}, {cc})")
+                path_str = " → ".join(path_parts) if path_parts else "—"
+                n_hops = len(hops)
+                self.circ_tree.insert("", "end",
+                    values=(circ["id"], circ["status"], n_hops, path_str))
+            if not self.circ_tree.get_children():
+                self.circ_tree.insert("", "end", values=("—", "IDLE", "", "no active circuits yet"))
         self._run_worker(load, show)
 
     def _run_leaktest(self, quick):

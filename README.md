@@ -21,10 +21,10 @@ v5 builds on the v4 rewrite and makes the whole experience **fully automatic**:
 | ⚡ **Fast startup** | Thin bash launcher + lazy-imported Python package. No work happens until you ask for it. |
 | 🪶 **Low memory** | Pure standard library. No background animation loops. The GUI idles at single-digit CPU and ~15 MB RAM. |
 | 🚀 **Fast Tor connect** | Persistent guard state, `AvoidDiskWrites`, tuned circuit timeouts, and live bootstrap polling over the control port. |
-| 🔑 **Fully automatic sudo** | Every privileged command — including the GUI — auto-elevates. The GUI forwards `DISPLAY`/`XAUTHORITY` and grants the X cookie, so no more `Invalid MIT-MAGIC-COOKIE-1`. |
+| 🔑 **Fully automatic sudo** | Every privileged command — including the GUI — auto-elevates (supports `sudo`, `pkexec`, and Windows UAC). The GUI forwards `DISPLAY`/`XAUTHORITY` and grants the X cookie, so no more `Invalid MIT-MAGIC-COOKIE-1`. `/usr/bin/torchain` fallback symlink ensures `sudo torchain` works even when sudo's `secure_path` excludes `/usr/local/bin`. |
 | 🐕 **Self-healing watchdog** | A robust daemon that repairs tor/firewall if they drop and enforces automatic identity rotation. |
 | 🔌 **Run on boot** | One command (or checkbox) to start torchain at boot via systemd, with an rc.local/cron fallback. |
-| 🌉 **Rich bridges** | obfs4 / snowflake / meek_lite / webtunnel plus add/remove/list of fully custom bridge lines. |
+| 🌉 **Rich bridges** | obfs4 / snowflake / meek_lite / webtunnel plus add/remove/list, **fetch** from the Tor Project, and **test** reachability with TCP ping. |
 | 🔁 **Migration manager** | Detects ANY older torchain install, removes it, and installs v5 in its place. |
 | 🖥️ **VM + bare-metal** | Detects VMware/VirtualBox/KVM/Xen/Hyper-V/containers and adapts (e.g. MAC-spoof rollback under hypervisor port security). |
 | 🛡️ **Robust error handling** | A typed exception hierarchy with human hints. Every failure rolls back **fail-closed** — you are never left half-protected. |
@@ -170,6 +170,10 @@ torchain bridge add 'obfs4 1.2.3.4:443 <FP> cert=... iat-mode=0'
 torchain bridge list
 torchain bridge remove 0                   # by index (or paste the exact line)
 torchain bridge enable
+torchain bridge fetch                      # fetch fresh bridges from Tor Project
+torchain bridge fetch --transport webtunnel
+torchain bridge test                       # TCP-ping each bridge to check reachability
+torchain bridge test --timeout 10
 ```
 
 ### Watchdog, boot & migration
@@ -214,7 +218,7 @@ One-click connect/disconnect, live bootstrap progress, PID / firewall / bootstra
 
 ### Bridges
 
-Pick a transport and add/remove/clear custom bridge lines.
+Pick a transport, add/remove/clear custom bridge lines, **fetch** 11 builtin bridges from the Tor Project via the Moat API, and **test** each bridge line with a TCP ping to confirm reachability.
 
 ![torchain bridges](docs/bridges.png)
 
@@ -239,8 +243,8 @@ Run the full or quick suite, color-coded pass/fail — verify your real IP, DNS,
 The dashboard sidebar gives you:
 
 - **Dashboard** — one-click connect/disconnect, live bootstrap progress, PID / firewall / bootstrap tiles.
-- **Circuits** — live Tor circuit table (scrollable).
-- **Bridges** — pick a transport and add/remove/clear custom bridge lines.
+- **Circuits** — live Tor circuit table with IP, nickname, and GeoIP country for each hop.
+- **Bridges** — pick a transport, add/remove/clear custom bridge lines, fetch from Tor Project, and test reachability.
 - **Leak Test** — run the full or quick suite, color-coded pass/fail.
 - **Settings** — exit country, IPv6 blocking, bridges, MAC/hostname spoofing, watchdog, boot, auto-rotation.
 - **Advanced** — enable boot, start/stop the watchdog, scan for old versions; shows your VM/bare-metal environment.

@@ -10,7 +10,11 @@ fresh bridges from Tor's BridgeDB.
 """
 from __future__ import annotations
 
+import json
 import re
+import socket
+import urllib.error
+import urllib.request
 
 from . import config as config_mod
 from .config import Config, _VALID_BRIDGE_TYPES
@@ -18,6 +22,8 @@ from .errors import ConfigError
 from .log import get_logger
 
 log = get_logger()
+
+MOAT_URL = "https://bridges.torproject.org/moat/circumvention/builtin"
 
 BRIDGE_TYPES = _VALID_BRIDGE_TYPES
 
@@ -56,6 +62,14 @@ def enable(on: bool, cfg: Config | None = None) -> Config:
     return cfg
 
 
+def _detect_transport(lines: list[str]) -> str | None:
+    for raw in lines:
+        m = _GENERIC_PT_RE.match(raw.strip())
+        if m:
+            return m.group(1).lower()
+    return None
+
+
 def add(lines, cfg: Config | None = None) -> Config:
     """Add one or more custom bridge lines (string or list)."""
     cfg = cfg or config_mod.load()
@@ -72,10 +86,13 @@ def add(lines, cfg: Config | None = None) -> Config:
         if line not in cfg.custom_bridges:
             cfg.custom_bridges.append(line)
             added += 1
-    # If the user is adding custom obfs4 lines, switch to custom mode only
-    # if the current type is not already a supported transport type.
-    if added and cfg.bridge_type not in ("custom", "obfs4", "snowflake", "meek_lite", "webtunnel"):
-        cfg.bridge_type = "custom"
+    # Auto-align bridge_type with the transport detected in the added lines so
+    # the correct ClientTransportPlugin is registered (fixes pasting a webtunnel
+    # line while bridge_type is still the default 'obfs4').
+    if added:
+        detected = _detect_transport([raw for raw in lines if raw.strip()])
+        if detected and cfg.bridge_type != detected:
+            cfg.bridge_type = detected
     config_mod.save(cfg)
     log.info("added %d custom bridge(s)", added)
     return cfg
@@ -108,3 +125,110 @@ def clear(cfg: Config | None = None) -> Config:
 def listing(cfg: Config | None = None) -> list[str]:
     cfg = cfg or config_mod.load()
     return list(cfg.custom_bridges)
+
+
+# -- Bridge fetching ------------------------------------------------------------
+
+def fetch_bridges(transport: str = "obfs4", url: str | None = None) -> list[str]:
+    """Fetch bridge lines from the Tor Project's API (or a custom URL).
+
+    Default source: the ``/moat/circumvention/builtin`` endpoint which returns
+    the official builtin (public) obfs4/snowflake bridges -- no captcha needed.
+
+    A custom *url* can point to any plain-text file with one bridge per line
+    (e.g. community-maintained bridge lists on GitHub).
+    """
+    source = url or MOAT_URL
+    try:
+        with urllib.request.urlopen(source, timeout=15) as resp:
+            body = resp.read().decode("utf-8")
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        raise ConfigError(
+            f"could not fetch bridges from {source}",
+            hint=f"Network error: {exc}. Check your connection or specify a custom URL.",
+        ) from exc
+
+    lines: list[str] = []
+    # Try JSON (moat API format); fall back to line-by-line plain text.
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        data = None
+
+    if isinstance(data, dict):
+        for key in (transport, "meek", "meek-azure", "snowflake", "webtunnel"):
+            chunk = data.get(key, [])
+            if isinstance(chunk, list):
+                lines.extend(chunk)
+        # Also pick up *any* transport key (handles future transports).
+        for val in data.values():
+            if isinstance(val, list):
+                for item in val:
+                    if isinstance(item, str) and validate_bridge_line(item) and item not in lines:
+                        lines.append(item)
+    else:
+        for raw in body.splitlines():
+            ln = raw.strip()
+            if validate_bridge_line(ln):
+                lines.append(ln)
+
+    if not lines:
+        raise ConfigError(
+            f"no valid {transport} bridge lines found at {source}",
+            hint="The source may have changed. Try specifying a custom URL.",
+        )
+    return lines
+
+
+def append_fetched(transport: str = "obfs4", url: str | None = None,
+                   cfg: Config | None = None) -> Config:
+    """Fetch bridge lines and append them to the config."""
+    cfg = cfg or config_mod.load()
+    fetched = fetch_bridges(transport=transport, url=url)
+    added = 0
+    for ln in fetched:
+        if ln not in cfg.custom_bridges:
+            cfg.custom_bridges.append(ln)
+            added += 1
+    if added:
+        detected = _detect_transport(fetched)
+        if detected and cfg.bridge_type != detected:
+            cfg.bridge_type = detected
+        config_mod.save(cfg)
+        log.info("fetched and added %d bridge(s) from %s", added, url or MOAT_URL)
+    return cfg
+
+
+# -- Bridge testing ------------------------------------------------------------
+
+_IP_PORT_RE = re.compile(r"(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5})")
+
+
+def _extract_addr(line: str) -> tuple[str, int] | None:
+    m = _IP_PORT_RE.search(line)
+    if m:
+        return m.group(1), int(m.group(2))
+    return None
+
+
+def test_bridges(bridge_lines: list[str] | None = None,
+                 cfg: Config | None = None, *,
+                 timeout: float = 5.0) -> list[tuple[str, bool, str]]:
+    """TCP-ping each bridge and return ``(line, alive, info)`` tuples."""
+    if bridge_lines is None:
+        cfg = cfg or config_mod.load()
+        bridge_lines = cfg.custom_bridges
+    results: list[tuple[str, bool, str]] = []
+    for line in bridge_lines:
+        addr = _extract_addr(line)
+        if not addr:
+            results.append((line, False, "no IP:port found"))
+            continue
+        host, port = addr
+        try:
+            sock = socket.create_connection((host, port), timeout=timeout)
+            sock.close()
+            results.append((line, True, f"{host}:{port} reachable"))
+        except OSError as exc:
+            results.append((line, False, f"{host}:{port} — {exc}"))
+    return results

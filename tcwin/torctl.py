@@ -7,6 +7,7 @@ circuit status. Sockets are always closed via context management.
 from __future__ import annotations
 
 import binascii
+import re
 import socket
 import time
 
@@ -19,6 +20,7 @@ log = get_logger()
 import os
 
 _COOKIE = os.path.join(DATA_DIR, "tor", "control_auth_cookie")
+_FP_RE = re.compile(r"\$([0-9A-Fa-f]{40})(?:=([^,\s]+))?")
 
 
 class ControlClient:
@@ -109,14 +111,20 @@ class ControlClient:
     # -- high level --
     def get_info(self, key: str) -> str:
         reply = self._command(f"GETINFO {key}")
-        out = []
+        out: list[str] = []
+        in_data = False
         for line in reply:
-            if line.startswith("250-") and "=" in line:
-                out.append(line.split("=", 1)[1])
-            elif line.startswith("250+"):
-                continue
-            elif line == ".":
-                continue
+            if line.startswith("250+") or line.startswith("250-"):
+                if "=" in line:
+                    val = line.split("=", 1)[1]
+                    if val:
+                        out.append(val)
+                if line.startswith("250+"):
+                    in_data = True
+            elif in_data and line == ".":
+                in_data = False
+            elif in_data:
+                out.append(line)
         return "\n".join(out)
 
     def bootstrap_progress(self) -> int:
@@ -138,6 +146,98 @@ class ControlClient:
     def circuits(self) -> list[str]:
         raw = self.get_info("circuit-status")
         return [ln for ln in raw.splitlines() if ln.strip()]
+
+    def relay_ip(self, fingerprint: str) -> str | None:
+        """Look up the IP address of a relay or bridge by its hex fingerprint."""
+        fp = fingerprint.upper()
+        # Try consensus (public relays)
+        try:
+            raw = self.get_info(f"ns/id/{fp}")
+        except TorError:
+            pass
+        else:
+            for line in raw.splitlines():
+                if line.startswith("@type "):
+                    continue
+                if line.startswith("r "):
+                    parts = line.split()
+                    if len(parts) >= 8:
+                        return parts[5]
+        # Fallback: full descriptor (bridges, etc.)
+        try:
+            raw = self.get_info(f"desc/id/{fp}")
+        except TorError:
+            return None
+        for line in raw.splitlines():
+            if line.startswith("router "):
+                parts = line.split()
+                if len(parts) >= 6:
+                    return parts[2]
+            if line.startswith("or-address "):
+                parts = line.split()
+                if len(parts) >= 2:
+                    return parts[1].rsplit(":", 1)[0]
+        return None
+
+    def ip_country(self, ip: str) -> str:
+        """Get 2-letter country code for an IP via tor's GeoIP."""
+        try:
+            return self.get_info(f"ip-to-country/{ip}").strip()
+        except TorError:
+            return "??"
+
+    def circuit_details(self) -> list[dict]:
+        """Return structured info for each circuit with relay IPs and countries."""
+        raw = self._command("GETINFO circuit-status")
+        circuits: list[dict] = []
+        data_lines: list[str] = []
+        in_data = False
+        for line in raw:
+            if line.startswith("250+circuit-status="):
+                in_data = True
+            elif in_data and line == ".":
+                in_data = False
+            elif in_data:
+                data_lines.append(line)
+            elif line.startswith("250-circuit-status="):
+                val = line.split("=", 1)[1] if "=" in line else ""
+                data_lines.append(val)
+
+        for raw_line in data_lines:
+            ln = raw_line.strip()
+            if not ln:
+                continue
+            parts = ln.split(" ", 2)
+            if len(parts) < 2:
+                continue
+            cid = parts[0]
+            status = parts[1]
+            extra = parts[2] if len(parts) > 2 else ""
+            purpose = "GENERAL"
+            pm = re.search(r"PURPOSE=(\S+)", extra)
+            if pm:
+                purpose = pm.group(1)
+            path_raw = extra.split(" ", 1)[0] if " " in extra else extra
+            hops: list[dict] = []
+            for m in _FP_RE.finditer(path_raw):
+                fp = m.group(1).lower()
+                nickname = m.group(2) or "?"
+                hops.append({
+                    "fingerprint": fp,
+                    "nickname": nickname,
+                    "ip": self.relay_ip(fp) or "?",
+                    "country": "?",
+                })
+            for hop in hops:
+                if hop["ip"] and hop["ip"] != "?":
+                    hop["country"] = self.ip_country(hop["ip"]) or "??"
+            circuits.append({
+                "id": cid,
+                "status": status,
+                "purpose": purpose,
+                "hops": hops,
+            })
+        return circuits
 
 
 def wait_bootstrap(timeout: float = 60.0, poll: float = 0.5,

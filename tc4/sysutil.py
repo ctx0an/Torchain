@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from typing import Sequence
 
 from .errors import CommandError, DependencyError, PrivilegeError, TimeoutError_
@@ -35,11 +36,20 @@ def is_root() -> bool:
 
 
 def require_root() -> None:
-    if not is_root():
-        raise PrivilegeError(
-            "this operation requires root privileges",
-            hint="Re-run with sudo, e.g. 'sudo torchain start'.",
-        )
+    if is_root():
+        return
+    # Auto-elevation: try desktop polkit first (shows a GUI auth dialog),
+    # then fall back to the error message.
+    display = os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+    pkexec = shutil.which("pkexec")
+    if pkexec and display:
+        argv = ["pkexec"] + sys.argv
+        os.execvp(pkexec, argv)
+        # never returns
+    raise PrivilegeError(
+        "this operation requires root privileges",
+        hint="Re-run with sudo, e.g. 'sudo torchain start'.",
+    )
 
 
 def run(
