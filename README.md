@@ -36,29 +36,19 @@ v5 builds on the v4 rewrite and makes the whole experience **fully automatic**:
 
 ```
 torchain            ← thin bash launcher (auto-elevates everything, incl. GUI X-forwarding)
-tc4/
-├── cli.py          ← argparse dispatcher, friendly errors
+tc4/                ← Core Python package (Linux desktop engine & dashboard)
 ├── engine.py       ← orchestrates tor + firewall + spoofing + watchdog (fail-closed)
-├── torrc.py        ← generates a fast-bootstrapping torrc (multi-transport)
-├── firewall.py     ← transparent-proxy iptables rules (dedicated chains)
-├── torctl.py       ← minimal Tor control-port client (cookie auth)
-├── spoof.py        ← reversible, VM-safe MAC / hostname spoofing
-├── bridges.py      ← obfs4/snowflake/meek_lite/webtunnel + custom bridges
-├── watchdog.py     ← self-healing daemon (auto-repair + auto-rotate)
-├── boot.py         ← run-on-boot (systemd unit, rc.local/cron fallback)
-├── migrate.py      ← detect + remove older torchain, install v5 in its place
-├── platform.py     ← VM / bare-metal / container + init-system detection
-├── icon.py         ← procedurally-generated PNG app icon (no binary assets)
-├── leaktest.py     ← DNS / IPv6 / exit-IP / firewall checks
-├── config.py       ← typed config, atomic JSON persistence
-├── theme.py        ← Kali design system (colors, fonts, spacing)
 ├── gui.py          ← event-driven Tk dashboard (no busy loops)
-├── log.py          ← rotating file + colored console logging
-├── errors.py       ← typed exceptions with hints
-└── sysutil.py      ← safe subprocess wrappers (always time-bounded)
+└── ...             
+tcwin/              ← Windows 11 parallel package (WinINET proxy + Firewall engine & GUI)
+app/                ← Native Android application port (Jetpack Compose, Kotlin)
+├── src/main/java   ← TorVpnService, TorController, and compose UI screens
+└── src/main/res    ← UI assets, launcher icons, XML configurations
+scripts/
+└── download_tor.sh ← Helper script to fetch native libtor.so binaries
 ```
 
-Each module does one thing. Everything is dependency-light and unit-testable.
+Each module/package does one thing. Everything is dependency-light and unit-testable.
 
 ---
 
@@ -139,6 +129,39 @@ Linux, so the Windows build is deliberately conservative:
 
 > Verification note: the Windows port is validated by syntax check and code
 > review in this build, not a live Windows run.
+
+
+---
+
+## Android Build
+
+Torchain includes a native Android port (`com.torchain.android`) that packs a Jetpack Compose frontend and runs a local Tor proxy service inside an Android VPN service framework (`TorVpnService`), ensuring a system-wide anonymized connection.
+
+### Features
+- **Local Tor Daemon Integration**: Embeds the native `libtor.so` binary (extracted automatically from Orbot release APKs).
+- **Jetpack Compose UI**: Modern, clean theme with Sidebar navigation matching the desktop design.
+- **Full protection**: VPN-mode routes all TCP packets through the local Tor daemon.
+- **Bridges Screen**: Configure custom bridge lines (obfs4, snowflake, meek_lite, webtunnel), fetch new bridges from Tor Project Moat API, and test TCP-ping reachability.
+- **Circuits Screen**: Live view of active Tor circuits with country flags and GeoIP lookup.
+- **Logs Screen**: Real-time rotating logs from the Tor service daemon.
+
+### Building Locally
+
+To build the APK locally, make sure you have the Android SDK and JDK 17+ installed:
+
+1. **Download Tor binaries and assets**:
+   Runs a script to pull the universal Orbot release APK and extract `libtor.so` libraries for all supported ABIs (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`) plus geoip databases:
+   ```bash
+   bash scripts/download_tor.sh
+   ```
+2. **Build the Debug APK**:
+   ```bash
+   ./gradlew assembleDebug
+   ```
+   The build outputs to `app/build/outputs/apk/debug/app-debug.apk`.
+
+### GitHub Actions CI
+The repository includes a [GitHub Actions workflow](.github/workflows/build-apk.yml) that automatically builds the Android application and uploads the debug APK as a workflow artifact upon every push to the `main` branch.
 
 
 ---

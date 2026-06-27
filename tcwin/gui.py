@@ -423,7 +423,8 @@ class TorChainGUI:
                 report = f"{alive}/{len(results)} bridges reachable\n" + "\n".join(lines)
                 self.root.after(0, lambda: self._notify(report))
             except TorChainError as exc:
-                self.root.after(0, lambda: self._notify(str(exc)))
+                err_msg = str(exc)
+                self.root.after(0, lambda: self._notify(err_msg))
         self._notify("Testing bridges...")
         threading.Thread(target=_work, daemon=True).start()
 
@@ -434,7 +435,8 @@ class TorChainGUI:
                 self.cfg = b.append_fetched(cfg=self.cfg)
                 self.root.after(0, self._fetch_done)
             except TorChainError as exc:
-                self.root.after(0, lambda: self._notify(exc))
+                err_msg = str(exc)
+                self.root.after(0, lambda: self._notify(err_msg))
         self._notify("Fetching bridges from Tor Project...")
         threading.Thread(target=_work, daemon=True).start()
 
