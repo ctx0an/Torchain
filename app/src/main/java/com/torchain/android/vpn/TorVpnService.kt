@@ -21,6 +21,7 @@ class TorVpnService : VpnService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        super.onStartCommand(intent, flags, startId)
         Logger.i("vpn", "TorVpnService start")
         startVpn()
         return START_STICKY
@@ -28,6 +29,7 @@ class TorVpnService : VpnService() {
 
     private fun startVpn() {
         try {
+            Logger.i("vpn", "Building VpnService configuration...")
             val builder = Builder()
                 .setSession(getString(R.string.app_name))
                 .addAddress(VPN_ADDRESS, 30)
@@ -36,6 +38,7 @@ class TorVpnService : VpnService() {
                 .setMtu(1500)
                 .setBlocking(false)
                 .allowFamily(android.system.OsConstants.AF_INET)
+            Logger.i("vpn", "VpnService.Builder configured: addr=$VPN_ADDRESS/30 dns=$VPN_DNS mtu=1500 route=0.0.0.0/0")
 
             try {
                 builder.addDisallowedApplication(packageName)
@@ -55,11 +58,16 @@ class TorVpnService : VpnService() {
             )
             builder.setConfigureIntent(pi)
 
+            Logger.i("vpn", "Calling VpnService.Builder.establish()...")
             val pfd = builder.establish()
-                ?: throw IOException("VpnService.establish() returned null (user revoked?)")
+            if (pfd == null) {
+                Logger.e("vpn", "VpnService.establish() returned null — user may have revoked VPN permission or service not declared in manifest")
+                stopSelf()
+                return
+            }
             tunFd = pfd
             running = true
-            Logger.i("vpn", "TUN established, MTU 1500, routes 0.0.0.0/0 via $VPN_ADDRESS")
+            Logger.i("vpn", "TUN established fd=${pfd.fd}, MTU 1500, routes 0.0.0.0/0 via $VPN_ADDRESS")
 
             // Write tproxy.conf configuration
             val file = java.io.File(cacheDir, "tproxy.conf")
@@ -71,7 +79,7 @@ class TorVpnService : VpnService() {
                 socks5:
                   port: 9050
                   address: '127.0.0.1'
-                  udp: 'udp'
+                  udp: true
                 mapdns:
                   address: '$VPN_DNS'
                   port: 53
@@ -80,12 +88,20 @@ class TorVpnService : VpnService() {
                   cache-size: 10000
             """.trimIndent()
             file.writeText(conf)
+            Logger.i("vpn", "tproxy.conf written to ${file.absolutePath}")
 
+            Logger.i("vpn", "Starting TProxy native library (hev-socks5-tunnel)...")
             hev.sockstun.TProxyService.TProxyStartService(file.absolutePath, pfd.fd)
-            Logger.i("vpn", "TProxyService started with fd ${pfd.fd}")
+            Logger.i("vpn", "TProxyService started with fd ${pfd.fd} — VPN is now active")
 
+        } catch (e: java.lang.SecurityException) {
+            Logger.e("vpn", "VPN permission denied: ${e.message}", e)
+            stopSelf()
+        } catch (e: java.lang.IllegalStateException) {
+            Logger.e("vpn", "VPN service not properly declared in manifest: ${e.message}", e)
+            stopSelf()
         } catch (e: Exception) {
-            Logger.e("vpn", "startVpn failed", e)
+            Logger.e("vpn", "startVpn failed: ${e.message}", e)
             stopSelf()
         }
     }

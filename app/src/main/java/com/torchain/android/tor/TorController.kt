@@ -30,6 +30,9 @@ class TorController(private val context: Context) {
     private var cookieFile: File = dataDir.resolve("control_auth_cookie")
 
     @Volatile private var torRunning = false
+    @Volatile private var bwReadTotal: Long = 0
+    @Volatile private var bwWrittenTotal: Long = 0
+    private var bwLogInterval: Long = 0
 
     fun locateTorBinary(): File? {
         val nativeDir = context.applicationInfo.nativeLibraryDir
@@ -133,18 +136,29 @@ class TorController(private val context: Context) {
             }, "tor-stdout").start()
 
             if (!waitForControlPort(controlPort, 20000)) {
-                val msg = "Tor control port did not come up within 20s"
+                val msg = "Tor control port ($controlPort) did not come up within 20s"
+                Logger.e("tor", msg)
                 throw IOException(msg)
             }
+            Logger.i("tor", "Control port $controlPort is up")
 
             if (!waitForCookie(cookie, 5000)) {
                 Logger.w("tor", "control_auth_cookie not present after 5s; auth may fail")
+            } else {
+                Logger.i("tor", "Control auth cookie found")
             }
 
             control = ControlPortClient("127.0.0.1", controlPort, cookie).also {
                 it.setEventListener(::onEvent)
                 it.connect()
                 it.setEvents("STATUS_CLIENT", "BW", "CIRC", "NOTICE", "WARN", "ERR")
+            }
+            Logger.i("tor", "Control port connected and authenticated")
+
+            if (!waitForSocksProxy(socksPort, 10000)) {
+                Logger.w("tor", "SOCKS proxy :$socksPort not responding after 10s — VPN may not route traffic")
+            } else {
+                Logger.i("tor", "SOCKS proxy :$socksPort is accepting connections")
             }
 
             _status.value = _status.value.copy(
@@ -185,6 +199,20 @@ class TorController(private val context: Context) {
         return false
     }
 
+    private fun waitForSocksProxy(port: Int, timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                Socket().use { s ->
+                    s.connect(InetSocketAddress("127.0.0.1", port), 300)
+                    return true
+                }
+            } catch (_: Exception) { }
+            try { Thread.sleep(200) } catch (_: Exception) {}
+        }
+        return false
+    }
+
     private fun onEvent(ev: ControlPortClient.Event) {
         when (ev) {
             is ControlPortClient.Event.Bootstrap -> {
@@ -201,8 +229,21 @@ class TorController(private val context: Context) {
             is ControlPortClient.Event.Status -> {
                 Logger.i("tor-status", "${ev.severity} ${ev.action} ${ev.args}")
             }
-            is ControlPortClient.Event.Bandwidth -> { }
-            is ControlPortClient.Event.Circuit -> { }
+            is ControlPortClient.Event.Bandwidth -> {
+                bwReadTotal += ev.read
+                bwWrittenTotal += ev.written
+                bwLogInterval += ev.read + ev.written
+                if (bwLogInterval >= 50_000 || _status.value.state !is TorState.Running) {
+                    bwLogInterval = 0
+                    Logger.d("tor-bw", "read=${ev.read} written=${ev.written} total_read=${bwReadTotal} total_written=${bwWrittenTotal}")
+                }
+            }
+            is ControlPortClient.Event.Circuit -> {
+                Logger.d("tor-circuit", "CIRC #${ev.id} ${ev.status} purpose=${ev.purpose} flags=${ev.buildFlags}")
+                if (ev.status == "FAILED") {
+                    Logger.w("tor-circuit", "CIRC #${ev.id} FAILED — purpose=${ev.purpose} flags=${ev.buildFlags}")
+                }
+            }
             is ControlPortClient.Event.Log -> {
                 Logger.i("tor-notice", "${ev.severity} ${ev.msg}")
             }
@@ -238,16 +279,30 @@ class TorController(private val context: Context) {
             val info = control?.getInfo("circuit-status") ?: return@withContext emptyList()
             val raw = info["circuit-status"] ?: return@withContext emptyList()
             raw.split('\n').mapNotNull { line ->
-                val parts = line.split(' ')
-                if (parts.size < 3) return@mapNotNull null
-                val id = parts[0]; val status = parts[1]; val path = parts[2]
-                val hops = path.split(',').map { fp ->
-                    CircuitHop(
-                        nickname = fp.substringAfter('~', fp).substringAfter('$', fp),
-                        fingerprint = fp.removePrefix("$").substringBefore('~'),
-                        ipv4 = "", countryCode = "")
+                val tokens = line.split(' ')
+                if (tokens.size < 2) return@mapNotNull null
+                val id = tokens[0]; val status = tokens[1]
+                val meta = mutableMapOf<String, String>()
+                val pathParts = mutableListOf<String>()
+                for (i in 2 until tokens.size) {
+                    val t = tokens[i]
+                    if (t.contains('=') && t[0].isUpperCase()) {
+                        val eq = t.indexOf('=')
+                        meta[t.substring(0, eq)] = t.substring(eq + 1)
+                    } else {
+                        pathParts.add(t)
+                    }
                 }
-                CircuitInfo(id, status, "general", hops)
+                val path = pathParts.joinToString(" ")
+                val hops = if (path.isBlank()) emptyList()
+                    else path.split(',').map { fp ->
+                        CircuitHop(
+                            nickname = fp.substringAfter('~', fp).substringAfter('$', fp),
+                            fingerprint = fp.removePrefix("$").substringBefore('~'),
+                            ipv4 = "", countryCode = "")
+                    }
+                val purpose = meta["PURPOSE"] ?: "GENERAL"
+                CircuitInfo(id, status, purpose, hops)
             }.also { _status.value = _status.value.copy(circuits = it) }
         } catch (e: Exception) {
             Logger.w("tor", "refresh circuits failed", e)

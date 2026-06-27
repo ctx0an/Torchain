@@ -32,6 +32,20 @@ object Logger {
         cur.readLines().takeLast(lines).joinToString("\n")
     }
 
+    fun clear() {
+        if (!::logDir.isInitialized) return
+        synchronized(lock) {
+            try {
+                val cur = File(logDir, "torchain.log")
+                if (cur.exists()) cur.writeText("")
+                for (i in 1..MAX_LOG_FILES) {
+                    val f = File(logDir, "torchain.$i.log")
+                    if (f.exists()) f.delete()
+                }
+            } catch (_: Exception) { }
+        }
+    }
+
     fun d(tag: String, msg: String) { write('D', tag, msg); Log.d(tag, msg) }
     fun i(tag: String, msg: String) { write('I', tag, msg); Log.i(tag, msg) }
     fun w(tag: String, msg: String, t: Throwable? = null) {

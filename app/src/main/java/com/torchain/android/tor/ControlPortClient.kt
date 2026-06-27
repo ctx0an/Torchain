@@ -32,7 +32,14 @@ class ControlPortClient(
         data class Bootstrap(val progress: Int, val tag: String) : Event()
         data class Status(val severity: String, val action: String, val args: String) : Event()
         data class Bandwidth(val read: Long, val written: Long) : Event()
-        data class Circuit(val id: String, val status: String, val path: String) : Event()
+        data class Circuit(
+            val id: String,
+            val status: String,
+            val path: String,
+            val buildFlags: String = "",
+            val purpose: String = "",
+            val confluxId: String = ""
+        ) : Event()
         data class Log(val severity: String, val msg: String) : Event()
     }
 
@@ -130,8 +137,28 @@ class ControlPortClient(
                 Event.Bandwidth(p.getOrNull(0)?.toLongOrNull() ?: 0, p.getOrNull(1)?.toLongOrNull() ?: 0)
             }
             body.startsWith("CIRC ") -> {
-                val p = body.removePrefix("CIRC ").split(' ')
-                Event.Circuit(p.getOrNull(0) ?: "", p.getOrNull(1) ?: "", p.getOrNull(2) ?: "")
+                val tokens = body.removePrefix("CIRC ").split(' ')
+                val cid = tokens.getOrNull(0) ?: ""
+                val cstatus = tokens.getOrNull(1) ?: ""
+                val meta = mutableMapOf<String, String>()
+                val pathParts = mutableListOf<String>()
+                for (i in 2 until tokens.size) {
+                    val t = tokens[i]
+                    if (t.contains('=') && t[0].isUpperCase()) {
+                        val eq = t.indexOf('=')
+                        meta[t.substring(0, eq)] = t.substring(eq + 1)
+                    } else {
+                        pathParts.add(t)
+                    }
+                }
+                Event.Circuit(
+                    id = cid,
+                    status = cstatus,
+                    path = pathParts.joinToString(" "),
+                    buildFlags = meta["BUILD_FLAGS"] ?: "",
+                    purpose = meta["PURPOSE"] ?: "",
+                    confluxId = meta["CONFLUX_ID"] ?: ""
+                )
             }
             body.startsWith("NOTICE ") || body.startsWith("WARN ") || body.startsWith("ERR ") -> {
                 val sp = body.indexOf(' ')

@@ -105,9 +105,13 @@ fun LogsScreen() {
                         style = MaterialTheme.typography.labelMedium)
                 }
                 OutlinedButton(
-                    onClick = { lines.clear(); copied = false },
+                    onClick = {
+                        Logger.clear()
+                        lines.clear()
+                        copied = false
+                    },
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = KaliMagenta)
-                ) { Text("CLEAR") }
+                ) { Text("CLEAR LOG") }
             }
         }
 
