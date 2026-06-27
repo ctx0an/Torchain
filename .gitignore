@@ -17,9 +17,21 @@ torchain_orig_hostname
 dist/
 build/
 
+# Android / Gradle
+.idea/
+*.iml
+.gradle/
+/local.properties
+/app/build/
+/build/
+
+# Native libs (downloaded by scripts/download_tor.sh)
+/app/src/main/jniLibs/*/libtor.so
+/app/src/main/jniLibs/*/liblyrebird.so
+/app/src/main/assets/geoip*
+
 # Editor / OS
 .vscode/
-.idea/
 *.swp
 *~
 .DS_Store

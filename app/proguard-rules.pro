@@ -1,0 +1,2 @@
+-keep class com.torchain.android.** { *; }
+-keepclassmembers class * { native <methods>; }

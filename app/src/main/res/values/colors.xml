@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="kali_bg">#0A0E14</color>
+    <color name="kali_bg_elevated">#11161D</color>
+    <color name="kali_surface">#1A2029</color>
+    <color name="kali_surface_variant">#232A35</color>
+    <color name="kali_divider">#2B3340</color>
+    <color name="kali_text_primary">#E6EDF3</color>
+    <color name="kali_text_secondary">#8B98A8</color>
+    <color name="kali_primary">#367BF0</color>
+    <color name="kali_accent">#00D4FF</color>
+    <color name="kali_magenta">#E91E63</color>
+    <color name="kali_success">#00E676</color>
+    <color name="kali_warning">#FFB300</color>
+    <color name="kali_error">#FF3D57</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>
