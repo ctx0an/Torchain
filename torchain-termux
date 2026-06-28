@@ -6,21 +6,23 @@
 # pluggable transports, local network gateway sharing, and leak testing
 # in the Termux unprivileged environment.
 #
+# When installed, it registers itself as the 'torchain' command in Termux.
+#
 # Usage:
 #   ./torchain-termux install
-#   ./torchain-termux start
-#   ./torchain-termux stop
-#   ./torchain-termux status
-#   ./torchain-termux rotate
-#   ./torchain-termux bridge [obfs4 | snowflake | none]
-#   ./torchain-termux gateway [start | stop]
-#   ./torchain-termux leaktest
+#   torchain start
+#   torchain stop
+#   torchain status
+#   torchain rotate
+#   torchain bridge [obfs4 | snowflake | none]
+#   torchain gateway [start | stop]
+#   torchain leaktest
 #
 
 set -Eeuo pipefail
 
 # --- configuration paths -----------------------------------------------------
-CONF_DIR="$HOME/.config/torchain-termux"
+CONF_DIR="$HOME/.config/torchain"
 TORRC_PATH="$CONF_DIR/torrc"
 TOR_DATA_DIR="$CONF_DIR/tor_data"
 PRIVOXY_CONF_PATH="$CONF_DIR/privoxy.conf"
@@ -117,14 +119,14 @@ cmd_install() {
   info "Installing Torchain CLI to Termux system..."
   ensure_deps
   
-  # Copy to Termux bin directory (which is in default $PATH)
-  local bin_path="/data/data/com.termux/files/usr/bin/torchain-termux"
+  # Copy to Termux bin directory as 'torchain' (available in default $PATH)
+  local bin_path="/data/data/com.termux/files/usr/bin/torchain"
   cp "$0" "$bin_path"
   chmod +x "$bin_path"
-  success "Copied torchain-termux to $bin_path (available in PATH)"
+  success "Copied script to $bin_path (available in PATH as 'torchain')"
   
   # Add alias to shell configs as a fallback
-  local alias_line="alias torchain-termux='$bin_path'"
+  local alias_line="alias torchain='$bin_path'"
   local updated=0
   for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.config/fish/config.fish"; do
     if [ -f "$rc" ] || [ "${rc##*/}" = "config.fish" ]; then
@@ -133,10 +135,10 @@ cmd_install() {
       
       # For fish shell, alias syntax is different
       if [ "${rc##*/}" = "config.fish" ]; then
-        alias_line="alias torchain-termux '$bin_path'"
+        alias_line="alias torchain '$bin_path'"
       fi
       
-      if [ ! -f "$rc" ] || ! grep -q "torchain-termux" "$rc"; then
+      if [ ! -f "$rc" ] || ! grep -q "alias torchain=" "$rc" && ! grep -q "alias torchain " "$rc"; then
         echo -e "\n# Torchain CLI Alias\n$alias_line" >> "$rc"
         info "Added alias to $rc"
         updated=1
@@ -148,7 +150,7 @@ cmd_install() {
     info "Please restart your terminal or run: source ~/.bashrc (or your shell config)"
   fi
   
-  success "Installation complete! You can now run 'torchain-termux' from any directory."
+  success "Installation complete! You can now run 'torchain' from any directory."
 }
 
 cmd_start() {
@@ -257,7 +259,7 @@ cmd_bridge() {
   local btype="${1:-}"
   if [ -z "$btype" ]; then
     echo "Current bridge type: $(get_bridge_type)"
-    echo "Usage: torchain-termux bridge [obfs4 | snowflake | none]"
+    echo "Usage: torchain bridge [obfs4 | snowflake | none]"
     return
   fi
   
@@ -281,13 +283,13 @@ cmd_bridge() {
 cmd_gateway() {
   local action="${1:-}"
   if [ -z "$action" ]; then
-    echo "Usage: torchain-termux gateway [start | stop]"
+    echo "Usage: torchain gateway [start | stop]"
     return
   fi
   
   if [ "$action" = "start" ]; then
     if ! pgrep -x "tor" >/dev/null; then
-      die "Tor must be running to start the gateway. Run: torchain-termux start"
+      die "Tor must be running to start the gateway. Run: torchain start"
     fi
     
     if pgrep -x "privoxy" >/dev/null; then
@@ -386,7 +388,7 @@ case "$CMD" in
   leaktest) cmd_leaktest ;;
   *)
     echo "Torchain CLI for Termux"
-    echo "Usage: torchain-termux <command> [args]"
+    echo "Usage: torchain <command> [args]"
     echo ""
     echo "Commands:"
     echo "  install     Install dependencies and register system PATH / aliases"
