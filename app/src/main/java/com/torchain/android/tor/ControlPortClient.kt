@@ -123,13 +123,22 @@ class ControlPortClient(
         return when {
             body.startsWith("STATUS_CLIENT ") || body.startsWith("STATUS_GENERAL ") ||
             body.startsWith("STATUS_BOOTSTRAP ") -> {
+                // Tor control spec: 650 STATUS_CLIENT <Severity> <Action> <Args...>
+                // e.g. 650 STATUS_CLIENT NOTICE BOOTSTRAP PROGRESS=5 TAG=conn SUMMARY="..."
+                // parts = [<Severity>, <Action>, <arg>, ...]
+                // The previous code read `action = parts.firstOrNull()` which is the
+                // SEVERITY ("NOTICE"), so the `action == "BOOTSTRAP"` check was always
+                // false and every bootstrap event was misclassified as a Status event.
+                // That left the dashboard stuck at "Bootstrap 0%" and (with the
+                // VPN-waits-for-Running fix) the VPN never came up.
                 val parts = body.split(' ').drop(1)
-                val action = parts.firstOrNull() ?: ""
-                val kv = parseKv(parts.drop(1).joinToString(" "))
+                val severity = parts.firstOrNull() ?: ""
+                val action = parts.getOrNull(1) ?: ""
+                val kv = parseKv(parts.drop(2).joinToString(" "))
                 if (action == "BOOTSTRAP") {
                     Event.Bootstrap((kv["PROGRESS"] ?: "0").toIntOrNull() ?: 0, kv["TAG"] ?: "")
                 } else {
-                    Event.Status(parts.firstOrNull() ?: "", action, kv.toString())
+                    Event.Status(severity, action, kv.toString())
                 }
             }
             body.startsWith("BW ") -> {

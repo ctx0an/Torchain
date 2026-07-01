@@ -44,7 +44,7 @@ die() { echo "${C_RED}✗ $*${C_RST}" >&2; exit 1; }
 # --- ensure dependencies -----------------------------------------------------
 ensure_deps() {
   local missing=()
-  for cmd in tor curl nc; do
+  for cmd in tor curl python3; do
     command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
   done
   
@@ -52,6 +52,25 @@ ensure_deps() {
     info "Installing missing dependencies: ${missing[*]}..."
     pkg update -y
     pkg install -y "${missing[@]}"
+  fi
+}
+
+# --- check if port is open using Bash built-in /dev/tcp ----------------------
+is_port_open() {
+  local host="$1"
+  local port="$2"
+  (echo > "/dev/tcp/$host/$port") >/dev/null 2>&1
+}
+
+# --- get local IP address safely on Android 10+ without netlink --------------
+get_local_ip() {
+  # Android 10+ blocks untrusted apps from binding to netlink sockets (which breaks 'ip' and 'ifconfig').
+  # We use a standard Python UDP socket query to get the active network interface IP.
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(('8.8.8.8', 80)); print(s.getsockname()[0]); s.close()" 2>/dev/null || echo "127.0.0.1"
+  else
+    # Fallback to getprop if python3 is not installed yet
+    getprop dhcp.wlan0.ipaddress 2>/dev/null || echo "127.0.0.1"
   fi
 }
 
@@ -169,7 +188,7 @@ cmd_start() {
   # Wait for SOCKS port to open
   info "Waiting for Tor SOCKS proxy to come up..."
   for i in {1..30}; do
-    if nc -z 127.0.0.1 9050 >/dev/null 2>&1; then
+    if is_port_open "127.0.0.1" 9050; then
       success "Tor started successfully!"
       cmd_status
       return
@@ -207,7 +226,7 @@ cmd_status() {
     # Check gateway status
     if pgrep -x "privoxy" >/dev/null; then
       local g_pid; g_pid=$(pgrep -x "privoxy")
-      local local_ip; local_ip=$(ip -o -4 addr show | awk '{print $4}' | cut -d/ -f1 | grep -v '127.0.0.1' | head -n 1 || echo "0.0.0.0")
+      local local_ip; local_ip=$(get_local_ip)
       success "Gateway is ACTIVE (PID: $g_pid)"
       echo "    -> Share with your local network using HTTP Proxy: $local_ip:8118"
     else
@@ -240,16 +259,19 @@ cmd_rotate() {
   
   local cookie_hex; cookie_hex=$(od -An -tx1 -v "$cookie_path" | tr -d ' \n')
   
-  # Send AUTHENTICATE and SIGNAL NEWNYM to control port
-  (
-    echo -e "AUTHENTICATE $cookie_hex"
+  # Use Bash built-in TCP socket to communicate with Tor control port (no netcat/nc needed!)
+  if exec 3<>/dev/tcp/127.0.0.1/9051; then
+    echo -e "AUTHENTICATE $cookie_hex" >&3
     sleep 0.2
-    echo -e "SIGNAL NEWNYM"
+    echo -e "SIGNAL NEWNYM" >&3
     sleep 0.2
-    echo -e "QUIT"
-  ) | nc 127.0.0.1 9051 >/dev/null
+    echo -e "QUIT" >&3
+    exec 3>&-
+    success "New identity requested successfully!"
+  else
+    die "Failed to connect to Tor control port 9051 using /dev/tcp"
+  fi
   
-  success "New identity requested successfully!"
   # Wait a bit and show new IP
   sleep 1
   cmd_status
@@ -323,7 +345,7 @@ EOF
     info "Starting Privoxy gateway on port 8118..."
     privoxy "$PRIVOXY_CONF_PATH"
     
-    local local_ip; local_ip=$(ip -o -4 addr show | awk '{print $4}' | cut -d/ -f1 | grep -v '127.0.0.1' | head -n 1 || echo "0.0.0.0")
+    local local_ip; local_ip=$(get_local_ip)
     success "Gateway started!"
     echo "--------------------------------------------------"
     echo " Configure other devices on your Wi-Fi network to:"

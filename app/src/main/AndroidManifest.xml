@@ -55,6 +55,13 @@
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Tor watchdog self-healing" />
         </service>
 
+        <!-- TorVpnService intentionally has NO foregroundServiceType.
+             A VpnService that calls establish() is kept alive by the VPN
+             framework binding and does NOT need to be a typed foreground
+             service. Declaring a type such as systemExempted here causes
+             startForeground() to throw ForegroundServiceTypeNotAllowed on
+             regular (non-system) apps, which kills the service before
+             establish() runs — that was why the VPN never came up. -->
         <service
             android:name=".vpn.TorVpnService"
             android:exported="false"

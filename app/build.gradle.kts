@@ -18,7 +18,11 @@ android {
         versionName = "5.0.1-android"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64") }
+        // Ship arm64 + armeabi-v7a only. This covers >99% of Android phones and
+        // keeps the APK under the 100MB upload limit of common file hosts.
+        // x86 / x86_64 are emulators only; users on emulators can rebuild with
+        // the full abiFilters list if needed.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
     buildTypes {
@@ -71,9 +75,10 @@ dependencies {
 tasks.register("assertNativeLibsExist") {
     doLast {
         val jniLibsDir = file("src/main/jniLibs")
-        val abis = listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+        // Only assert the ABIs we actually ship (see ndk.abiFilters above).
+        val abis = listOf("arm64-v8a", "armeabi-v7a")
         val requiredLibs = listOf("libtor.so", "libhev-socks5-tunnel.so")
-        
+
         for (abi in abis) {
             val abiDir = File(jniLibsDir, abi)
             for (lib in requiredLibs) {

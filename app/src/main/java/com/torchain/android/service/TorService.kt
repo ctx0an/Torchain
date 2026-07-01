@@ -19,7 +19,7 @@ import com.torchain.android.tor.TorController
 import com.torchain.android.ui.MainActivity
 import com.torchain.android.util.Logger
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -29,23 +29,50 @@ class TorService : LifecycleService() {
     private var statusJob: Job? = null
     @Volatile private var proxyMode: String = "vpn"
 
+    // Guards so the VPN is started exactly once per successful Tor bootstrap and
+    // never races with a stop / error path. These fix the original 15%-bootstrap
+    // crash where the VPN was brought up at ~5% bootstrap (right after the SOCKS
+    // listener opened) and apps flooded Tor before any circuit existed.
+    @Volatile private var startRequested: Boolean = false
+    @Volatile private var vpnStarted: Boolean = false
+
     override fun onCreate() {
         super.onCreate()
         tor = TorController(this)
         startForeground(NOTIF_ID, buildNotification("Torchain starting..."))
         statusJob = lifecycleScope.launch {
-            tor.status.collectLatest { s ->
+            // Use `collect` (not collectLatest) so state side-effects (VPN start,
+            // error cleanup) always run to completion instead of being cancelled
+            // by the next emission.
+            tor.status.collect { s ->
                 updateNotification(s)
                 broadcastState(s)
-                if (s.state is TorState.Error) {
-                    if (proxyMode == "vpn") {
-                        try {
-                            stopService(Intent(this@TorService, com.torchain.android.vpn.TorVpnService::class.java))
-                            Logger.i("TorService", "Tor error detected, stopped TorVpnService")
-                        } catch (e: Exception) {
-                            Logger.w("TorService", "Failed to stop VPN on Tor error", e)
+                when (s.state) {
+                    is TorState.Running -> {
+                        // KEY FIX: only bring the VPN up once Tor is fully
+                        // bootstrapped (100%). This lets Tor build its first
+                        // circuits over the real network without the tunnel
+                        // flooding it with app traffic at 5-15%.
+                        if (proxyMode == "vpn" && startRequested && !vpnStarted) {
+                            vpnStarted = true
+                            startVpnService()
                         }
                     }
+                    is TorState.Error -> {
+                        if (proxyMode == "vpn") {
+                            try {
+                                stopService(Intent(this@TorService, com.torchain.android.vpn.TorVpnService::class.java))
+                                Logger.i("TorService", "Tor error detected, stopped TorVpnService")
+                            } catch (e: Exception) {
+                                Logger.w("TorService", "Failed to stop VPN on Tor error", e)
+                            }
+                        }
+                        vpnStarted = false
+                    }
+                    is TorState.Stopped -> {
+                        vpnStarted = false
+                    }
+                    else -> { /* Starting / Bootstrapping / Stopping — wait */ }
                 }
             }
         }
@@ -70,24 +97,40 @@ class TorService : LifecycleService() {
         lifecycleScope.launch {
             val config = Config.flow(this@TorService).first()
             proxyMode = config.proxyMode
+            startRequested = true
+            vpnStarted = false
             Logger.i("TorService", "Starting Tor with config: exitCountry=${config.exitCountry} blockIpv6=${config.blockIpv6} bridges=${config.bridgesEnabled} proxyMode=${config.proxyMode}")
             val ok = tor.start(config)
             if (ok) {
-                if (config.proxyMode == "vpn") {
-                    Logger.i("TorService", "Tor process launched, starting VPN service...")
-                    val vpnIntent = Intent(this@TorService, com.torchain.android.vpn.TorVpnService::class.java)
-                    try {
-                        startService(vpnIntent)
-                        Logger.i("TorService", "TorVpnService startService() called")
-                    } catch (e: Exception) {
-                        Logger.e("TorService", "Failed to start TorVpnService: ${e.message}", e)
-                    }
-                } else {
+                if (config.proxyMode == "socks5") {
                     Logger.i("TorService", "SOCKS5 mode — VPN service skipped, SOCKS5 proxy on port 9050")
+                } else {
+                    // VPN mode: do NOT start TorVpnService here. It is started by
+                    // the statusJob observer above once Tor reaches Running (100%
+                    // bootstrap). See onCreate().
+                    Logger.i("TorService", "Tor process launched. VPN will start automatically after bootstrap completes.")
                 }
             } else {
                 Logger.e("TorService", "Tor.start() returned false — service will not start")
+                startRequested = false
             }
+        }
+    }
+
+    private fun startVpnService() {
+        Logger.i("TorService", "Tor is fully bootstrapped — starting VPN service...")
+        val vpnIntent = Intent(this, com.torchain.android.vpn.TorVpnService::class.java)
+        try {
+            // TorVpnService is a VpnService that does NOT call startForeground
+            // (it relies on establish() to stay alive, which is the correct
+            // pattern and avoids the ForegroundServiceTypeNotAllowed crash).
+            // Start it with startService(). This is allowed because TorService
+            // is itself a foreground service, so the background-start restriction
+            // on Android 8+ is satisfied.
+            startService(vpnIntent)
+            Logger.i("TorService", "TorVpnService startService() called")
+        } catch (e: Exception) {
+            Logger.e("TorService", "Failed to start TorVpnService: ${e.message}", e)
         }
     }
 
@@ -95,6 +138,8 @@ class TorService : LifecycleService() {
         lifecycleScope.launch {
             val config = Config.flow(this@TorService).first()
             Logger.i("TorService", "Stopping Tor and VPN...")
+            startRequested = false
+            vpnStarted = false
             if (config.proxyMode == "vpn") {
                 try {
                     stopService(Intent(this@TorService, com.torchain.android.vpn.TorVpnService::class.java))

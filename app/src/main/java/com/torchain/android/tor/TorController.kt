@@ -10,6 +10,7 @@ import com.torchain.android.data.TorchainConfig
 import com.torchain.android.util.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
@@ -29,9 +30,17 @@ class TorController(private val context: Context) {
     private var cookieFile: File = dataDir.resolve("control_auth_cookie")
 
     @Volatile private var torRunning = false
+    @Volatile private var stopping = false
     @Volatile private var bwReadTotal: Long = 0
     @Volatile private var bwWrittenTotal: Long = 0
     private var bwLogInterval: Long = 0
+
+    // Dedicated scope for fire-and-forget teardown from the raw Tor-watcher
+    // thread. Previously the watcher used `runBlocking { stopInternal() }`,
+    // which re-entered suspend code from a plain thread and could race with a
+    // user-initiated stop. We now guard with `stopping` and launch on this scope.
+    private val teardownScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
 
     fun locateTorBinary(): File? {
         val nativeDir = context.applicationInfo.nativeLibraryDir
@@ -94,6 +103,21 @@ class TorController(private val context: Context) {
             if (config.bridgesEnabled && config.bridgeTransport != "vanilla") {
                 val t = config.bridgeTransport
                 val tpName = if (t == "snowflake") "snowflake" else if (t == "custom") "obfs4" else t
+
+                // obfs4 / custom require the user to supply at least one bridge
+                // line (snowflake ships a built-in bridge in TorConfig). Without
+                // any Bridge lines Tor would start with UseBridges=1 but nothing
+                // to connect to, fail to bootstrap, and look like a crash — so
+                // surface a clear, actionable error up front instead.
+                if (tpName != "snowflake" && config.bridgeLines.isEmpty()) {
+                    val msg = "No bridge lines configured for $tpName. Open the Bridges " +
+                              "screen and add or fetch at least one $tpName bridge line first."
+                    Logger.e("tor", msg)
+                    _status.value = _status.value.copy(
+                        state = TorState.Error(msg), message = msg)
+                    return@withContext false
+                }
+
                 val port = startPluggableTransport(tpName)
                 if (port > 0) {
                     ptPorts[tpName] = port
@@ -163,7 +187,7 @@ class TorController(private val context: Context) {
             Thread({
                 try {
                     val exitCode = proc.waitFor()
-                    if (torRunning) {
+                    if (torRunning && !stopping) {
                         val msg = "Tor process exited unexpectedly with code $exitCode"
                         Logger.e("tor", msg)
                         _status.value = _status.value.copy(
@@ -171,8 +195,10 @@ class TorController(private val context: Context) {
                             message = msg,
                             pid = 0
                         )
-                        // Trigger clean teardown
-                        kotlinx.coroutines.runBlocking { stopInternal() }
+                        // Trigger clean teardown on the dedicated IO scope instead
+                        // of runBlocking on this raw thread. The `stopping` guard
+                        // prevents racing with a concurrent user-initiated stop.
+                        teardownScope.launch { stopInternal() }
                     }
                 } catch (e: InterruptedException) {
                     // Normal shutdown
@@ -234,10 +260,26 @@ class TorController(private val context: Context) {
     }
 
     private fun startPluggableTransport(transport: String): Int {
+        // NOTE: catches Throwable (not Exception) on purpose. The IPtProxy
+        // methods are `native`, so any failure to resolve or invoke them throws
+        // an Error subclass (UnsatisfiedLinkError / NoSuchMethodError /
+        // NoClassDefFoundError), which `catch (Exception)` does NOT catch and
+        // which would crash the whole app the moment a user enables a bridge.
+        // Catching Throwable turns those into a clean Error state in the UI
+        // instead of a process crash.
         try {
+            // Defensively stop any pluggable transport that might still be running
+            // from a previous (possibly crashed) session BEFORE starting a new one.
+            // IPtProxy's startLyrebird/startSnowflake are not idempotent — calling
+            // start while a previous instance is alive throws, which on reconnect
+            // with bridges looked like a crash. Stopping first (best-effort) makes
+            // restart safe.
+            try { IPtProxy.IPtProxy.stopLyrebird() } catch (_: Throwable) {}
+            try { IPtProxy.IPtProxy.stopSnowflake() } catch (_: Throwable) {}
+
             val stateDir = context.cacheDir.resolve("pt").apply { mkdirs() }
             IPtProxy.IPtProxy.setStateLocation(stateDir.absolutePath)
-            
+
             return when (transport) {
                 "obfs4" -> {
                     Logger.i("tor-pt", "Starting obfs4 (lyrebird) via IPtProxy...")
@@ -258,7 +300,7 @@ class TorController(private val context: Context) {
                 }
                 else -> 0
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Logger.e("tor-pt", "Failed to start pluggable transport $transport", e)
             return 0
         }
@@ -409,10 +451,15 @@ class TorController(private val context: Context) {
     }
 
     private suspend fun stopInternal() = withContext(Dispatchers.IO) {
-        if (!torRunning) return@withContext
+        if (stopping) return@withContext
+        stopping = true
+        if (!torRunning) {
+            stopping = false
+            return@withContext
+        }
         torRunning = false
         _status.value = _status.value.copy(state = TorState.Stopping, message = "Stopping...")
-        
+
         try {
             control?.close()
         } catch (e: Exception) {
@@ -434,9 +481,24 @@ class TorController(private val context: Context) {
         } catch (e: Exception) {
             Logger.w("tor", "Failed to destroy Tor process", e)
         }
+        // Wait for the Tor process to actually exit so it releases the control
+        // port (9051) and SOCKS port (9050) BEFORE a subsequent start() tries to
+        // rebind them. Without this, a quick reconnect races the old process and
+        // the new Tor fails with "Address already in use" -> exits -> looks like
+        // a crash. 3s is plenty for SIGTERM teardown.
+        try {
+            process?.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (_: Exception) {}
         process = null
-        
-        _status.value = TorStatus()
+
+        // Only reset to a clean Stopped state if the caller/watcher hasn't
+        // already published an Error. This lets the UI show *why* Tor died
+        // (e.g. "process exited unexpectedly") instead of silently reverting
+        // to "Stopped".
+        if (_status.value.state !is TorState.Error) {
+            _status.value = TorStatus()
+        }
+        stopping = false
     }
 
     suspend fun panic() {
