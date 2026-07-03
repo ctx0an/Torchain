@@ -13,7 +13,7 @@ import com.torchain.android.TorchainApp
 import com.torchain.android.data.Config
 import com.torchain.android.util.Logger
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class WatchdogService : LifecycleService() {
@@ -44,13 +44,15 @@ class WatchdogService : LifecycleService() {
     private fun startWatchdog() {
         rotateJob?.cancel()
         rotateJob = lifecycleScope.launch {
-            while (true) {
-                val cfg = Config.flow(this@WatchdogService).first()
+            Config.flow(this@WatchdogService).collectLatest { cfg ->
                 val minutes = cfg.autoRotateMinutes
-                if (minutes <= 0) { delay(60_000); continue }
-                delay(minutes * 60_000L)
-                Logger.i("watchdog", "auto-rotating identity (every $minutes min)")
-                TorService.rotate(this@WatchdogService)
+                if (minutes > 0) {
+                    while (true) {
+                        delay(minutes * 60_000L)
+                        Logger.i("watchdog", "auto-rotating identity (every $minutes min)")
+                        TorService.rotate(this@WatchdogService)
+                    }
+                }
             }
         }
     }

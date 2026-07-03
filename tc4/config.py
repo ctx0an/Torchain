@@ -35,6 +35,7 @@ class Config:
     use_bridges: bool = False
     bridge_type: str = "obfs4"       # see _VALID_BRIDGE_TYPES
     custom_bridges: List[str] = field(default_factory=list)
+    enabled_bridges: List[str] = field(default_factory=list)
 
     # Identity rotation (handled by the watchdog)
     auto_rotate_minutes: int = 0     # 0 = disabled

@@ -1,0 +1,5 @@
+# Enforce Unix LF line endings for shell scripts and main launchers
+torchain text eol=lf
+torchain-termux text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf

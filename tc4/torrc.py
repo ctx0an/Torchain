@@ -43,7 +43,11 @@ def _transport_lines(cfg: Config) -> list[str]:
     needed: list[str] = []
 
     # Collect transports referenced by the actual bridge lines.
-    for br in cfg.custom_bridges:
+    bridges_to_scan = cfg.custom_bridges
+    if getattr(cfg, "enabled_bridges", None):
+        bridges_to_scan = cfg.enabled_bridges
+
+    for br in bridges_to_scan:
         t = _transport_for_line(br)
         if t and t not in needed:
             needed.append(t)
@@ -79,7 +83,12 @@ def _bridge_lines(cfg: Config) -> list[str]:
         return []
     lines = ["UseBridges 1"]
     lines.extend(_transport_lines(cfg))
-    for br in cfg.custom_bridges:
+    
+    bridges_to_write = cfg.custom_bridges
+    if getattr(cfg, "enabled_bridges", None):
+        bridges_to_write = cfg.enabled_bridges
+
+    for br in bridges_to_write:
         br = br.strip()
         if br and not br.startswith("#"):
             if not br.lower().startswith("bridge "):

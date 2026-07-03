@@ -13,7 +13,10 @@ import javax.net.ssl.HttpsURLConnection
 
 object BridgeManager {
     fun parse(line: String): Bridge? {
-        val trimmed = line.trim()
+        var trimmed = line.trim()
+        if (trimmed.startsWith("Bridge ", ignoreCase = true)) {
+            trimmed = trimmed.substring(7).trim()
+        }
         if (trimmed.isEmpty()) return null
         val parts = trimmed.split(' ', limit = 2)
         val transport = parts[0]
@@ -105,17 +108,56 @@ object BridgeManager {
     suspend fun test(line: String, timeoutMs: Int = 8000): Pair<Boolean, Long> =
         withContext(Dispatchers.IO) {
             val parsed = parse(line) ?: return@withContext false to -1L
-            val rest = parsed.line.split(' ').getOrNull(1) ?: return@withContext false to -1L
-            val hp = rest.split(' ').first().split(':')
-            val host = hp.getOrNull(0) ?: return@withContext false to -1L
-            val port = hp.getOrNull(1)?.toIntOrNull() ?: return@withContext false to -1L
-            val start = System.currentTimeMillis()
-            try {
-                Socket().use { s -> s.connect(InetSocketAddress(host, port), timeoutMs) }
-                true to (System.currentTimeMillis() - start)
-            } catch (e: Exception) {
-                Logger.d("bridge-test", "test $host:$port failed: ${e.message}")
-                false to -1L
+            val transport = parsed.transport.lowercase()
+            if (transport == "snowflake" || transport.startsWith("meek")) {
+                val start = System.currentTimeMillis()
+                try {
+                    val params = parsed.line.split(' ').filter { it.contains('=') }.associate {
+                        val parts = it.split('=', limit = 2)
+                        parts[0] to parts[1]
+                    }
+                    val targetUrlStr = if (params.containsKey("front") && params["front"]?.isNotBlank() == true) {
+                        val frontVal = params["front"]!!
+                        if (frontVal.startsWith("http")) frontVal else "https://$frontVal"
+                    } else {
+                        params["url"] ?: ""
+                    }
+                    if (targetUrlStr.isBlank()) {
+                        return@withContext false to -1L
+                    }
+                    val url = URL(targetUrlStr)
+                    val con = url.openConnection() as HttpsURLConnection
+                    con.requestMethod = "GET"
+                    con.connectTimeout = timeoutMs
+                    con.readTimeout = timeoutMs
+                    if (params.containsKey("front") && params.containsKey("url")) {
+                        try {
+                            val brokerHost = URL(params["url"]!!).host
+                            con.setRequestProperty("Host", brokerHost)
+                        } catch (e: Exception) {
+                            // ignore invalid URL in url param
+                        }
+                    }
+                    con.connect()
+                    val code = con.responseCode
+                    true to (System.currentTimeMillis() - start)
+                } catch (e: Exception) {
+                    Logger.d("bridge-test", "ping Snowflake/Meek failed: ${e.message}")
+                    false to -1L
+                }
+            } else {
+                val rest = parsed.line.split(' ').getOrNull(1) ?: return@withContext false to -1L
+                val hp = rest.split(' ').first().split(':')
+                val host = hp.getOrNull(0) ?: return@withContext false to -1L
+                val port = hp.getOrNull(1)?.toIntOrNull() ?: return@withContext false to -1L
+                val start = System.currentTimeMillis()
+                try {
+                    Socket().use { s -> s.connect(InetSocketAddress(host, port), timeoutMs) }
+                    true to (System.currentTimeMillis() - start)
+                } catch (e: Exception) {
+                    Logger.d("bridge-test", "test $host:$port failed: ${e.message}")
+                    false to -1L
+                }
             }
         }
 }

@@ -18,6 +18,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,9 +41,14 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen() {
     val context = LocalContext.current
-    val cfg by Config.flow(context).collectAsState(initial = TorchainConfig())
+    val configFlow = remember(context) { Config.flow(context) }
+    val cfg by configFlow.collectAsState(initial = TorchainConfig())
     val scope = rememberCoroutineScope()
     var exitCountryMenu by remember { mutableStateOf(false) }
+    var localRotateMinutes by remember { mutableStateOf(cfg.autoRotateMinutes.toFloat()) }
+    LaunchedEffect(cfg.autoRotateMinutes) {
+        localRotateMinutes = cfg.autoRotateMinutes.toFloat()
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
@@ -104,12 +110,17 @@ fun SettingsScreen() {
             if (v) WatchdogService.start(context) else WatchdogService.stop(context)
         }
         SettingRow("Auto-rotate identity",
-            if (cfg.autoRotateMinutes <= 0) "Off"
-            else "Every ${cfg.autoRotateMinutes} minutes") {
+            if (localRotateMinutes.toInt() <= 0) "Off"
+            else "Every ${localRotateMinutes.toInt()} minutes") {
             Slider(
-                value = cfg.autoRotateMinutes.toFloat(),
+                value = localRotateMinutes,
                 onValueChange = { v ->
-                    scope.launch { Config.set(context) { it.copy(autoRotateMinutes = v.toInt()) } }
+                    localRotateMinutes = v
+                },
+                onValueChangeFinished = {
+                    scope.launch {
+                        Config.set(context) { it.copy(autoRotateMinutes = localRotateMinutes.toInt()) }
+                    }
                 },
                 valueRange = 0f..60f, steps = 11,
                 modifier = Modifier.padding(horizontal = 8.dp).fillMaxWidth(0.6f)

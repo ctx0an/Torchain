@@ -1,3 +1,6 @@
 -keep class com.torchain.android.** { *; }
 -keepclassmembers class * { native <methods>; }
 -keep class org.torproject.android.service.TProxyService { *; }
+-keep class go.** { *; }
+-keep class IPtProxy.** { *; }
+-keep class com.netzarchitekten.** { *; }

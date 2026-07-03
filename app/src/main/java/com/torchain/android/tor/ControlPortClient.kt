@@ -50,6 +50,9 @@ class ControlPortClient(
 
     suspend fun connect() = withContext(Dispatchers.IO) {
         mutex.withLock {
+            if (sock != null) {
+                try { close() } catch (_: Exception) {}
+            }
             val s = Socket()
             try {
                 s.connect(InetSocketAddress(host, port), 5000)
@@ -141,12 +144,18 @@ class ControlPortClient(
         val current = StringBuilder()
         var inQuotes = false
         var escaped = false
-        for (ch in s) {
+        for (i in 0 until s.length) {
+            val ch = s[i]
             if (escaped) {
                 current.append(ch)
                 escaped = false
             } else if (ch == '\\') {
-                escaped = true
+                val nextCh = s.getOrNull(i + 1)
+                if (nextCh == '"' || nextCh == '\\') {
+                    escaped = true
+                } else {
+                    current.append(ch)
+                }
             } else if (ch == '"') {
                 inQuotes = !inQuotes
                 current.append(ch)
@@ -333,6 +342,7 @@ class ControlPortClient(
 
     private fun readReply(): List<String> {
         val out = ArrayList<String>()
+        var inDataBlock = false
         while (true) {
             val line = replyQueue.poll(20, TimeUnit.SECONDS)
                 ?: throw IOException("control port reply timeout")
@@ -341,7 +351,12 @@ class ControlPortClient(
                 throw IOException("Control port disconnected")
             }
             out.add(line)
-            if (line.length >= 4 && line[3] == ' ') break
+            if (!inDataBlock && line.length >= 4 && line[3] == '+' && line.substring(0, 3).all { it.isDigit() }) {
+                inDataBlock = true
+            } else if (inDataBlock && line == ".") {
+                inDataBlock = false
+            }
+            if (!inDataBlock && line.length >= 4 && line[3] == ' ' && line.substring(0, 3).all { it.isDigit() }) break
         }
         return out
     }
@@ -349,11 +364,17 @@ class ControlPortClient(
     private fun readReplyDirect(): List<String> {
         val r = reader ?: throw IOException("not connected")
         val out = ArrayList<String>()
+        var inDataBlock = false
         while (true) {
             val line = r.readLine() ?: throw IOException("control port closed")
             Logger.d("tor-ctl", "<< $line")
             out.add(line)
-            if (line.length >= 4 && line[3] == ' ') break
+            if (!inDataBlock && line.length >= 4 && line[3] == '+' && line.substring(0, 3).all { it.isDigit() }) {
+                inDataBlock = true
+            } else if (inDataBlock && line == ".") {
+                inDataBlock = false
+            }
+            if (!inDataBlock && line.length >= 4 && line[3] == ' ' && line.substring(0, 3).all { it.isDigit() }) break
         }
         return out
     }

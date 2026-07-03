@@ -45,6 +45,8 @@ import com.torchain.android.ui.theme.KaliTextSecondary
 import com.torchain.android.ui.theme.KaliWarning
 import com.torchain.android.util.Logger
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun LogsScreen() {
@@ -54,10 +56,17 @@ fun LogsScreen() {
 
     LaunchedEffect(Unit) {
         while (true) {
-            val tail = Logger.tail(500)
+            val tail = withContext(Dispatchers.IO) { Logger.tail(500) }
             lines.clear()
             lines.addAll(tail.split('\n').filter { it.isNotBlank() })
             delay(1000)
+        }
+    }
+
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(2000)
+            copied = false
         }
     }
 
@@ -78,14 +87,15 @@ fun LogsScreen() {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = {
-                        val text = lines.joinToString("\n")
+                        val rawText = lines.joinToString("\n")
+                        val text = sanitizeLog(rawText)
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
                             as? ClipboardManager
                         if (clipboard != null && text.isNotEmpty()) {
                             clipboard.setPrimaryClip(
                                 ClipData.newPlainText("Torchain logs", text)
                             )
-                            Toast.makeText(context, "Copied ${lines.size} lines", Toast.LENGTH_SHORT)
+                            Toast.makeText(context, "Copied ${lines.size} lines (sanitized)", Toast.LENGTH_SHORT)
                                 .show()
                             copied = true
                         } else {
@@ -143,4 +153,19 @@ fun LogsScreen() {
             }
         }
     }
+}
+
+private fun sanitizeLog(text: String): String {
+    val ipv4Regex = """\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b""".toRegex()
+    val ipv6Regex = """\b(?:[A-Fa-f0-9]{1,4}:){1,7}[A-Fa-f0-9]{1,4}\b""".toRegex()
+    val certRegex = """cert=[A-Za-z0-9+/=_-]+""".toRegex()
+    val fingerprintRegex = """\b[A-Fa-f0-9]{40}\b""".toRegex()
+    val fingerprintParamRegex = """fingerprint=[A-Za-z0-9]+""".toRegex()
+
+    return text
+        .replace(ipv4Regex, "[IP]")
+        .replace(ipv6Regex, "[IPv6]")
+        .replace(certRegex, "cert=[REDACTED]")
+        .replace(fingerprintRegex, "[FINGERPRINT]")
+        .replace(fingerprintParamRegex, "fingerprint=[REDACTED]")
 }

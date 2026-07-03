@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
@@ -58,6 +60,8 @@ enum class NavTarget(val label: String, val icon: ImageVector) {
     LOGS("Logs", Icons.AutoMirrored.Filled.List)
 }
 
+private val navTargets = NavTarget.values()
+
 @Composable
 fun SidebarDrawer(
     current: NavTarget,
@@ -69,90 +73,94 @@ fun SidebarDrawer(
         modifier = modifier,
         drawerContainerColor = KaliBgElevated
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp, 24.dp, 20.dp, 20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        Column(
+            modifier = Modifier.verticalScroll(rememberScrollState())
         ) {
-            Box(
+            Row(
                 modifier = Modifier
-                    .size(28.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(KaliPrimary)
+                    .fillMaxWidth()
+                    .padding(20.dp, 24.dp, 20.dp, 20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .padding(4.dp)
-                        .size(20.dp)
+                        .size(28.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(KaliAccent)
+                        .background(KaliPrimary)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .padding(4.dp)
+                            .size(20.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(KaliAccent)
+                    )
+                }
+                Text(
+                    text = "torchain",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = KaliTextPrimary
                 )
             }
-            Text(
-                text = "torchain",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = KaliTextPrimary
-            )
-        }
 
-        NavTarget.values().forEach { target ->
-            val selected = target == current
-            NavigationDrawerItem(
-                label = {
-                    Text(
-                        target.label,
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
-                    )
-                },
-                icon = {
-                    Icon(
-                        imageVector = target.icon,
-                        contentDescription = target.label,
-                        modifier = Modifier.size(20.dp)
-                    )
-                },
-                selected = selected,
-                onClick = { onSelect(target) },
-                colors = NavigationDrawerItemDefaults.colors(
-                    selectedContainerColor = KaliSurfaceVar,
-                    unselectedContainerColor = KaliBgElevated,
-                    selectedTextColor = KaliTextPrimary,
-                    unselectedTextColor = KaliTextSecondary,
-                    selectedIconColor = KaliAccent,
-                    unselectedIconColor = KaliTextSecondary
-                ),
-                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-            )
-        }
+            navTargets.forEach { target ->
+                val selected = target == current
+                NavigationDrawerItem(
+                    label = {
+                        Text(
+                            target.label,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                        )
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = target.icon,
+                            contentDescription = target.label,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    },
+                    selected = selected,
+                    onClick = { onSelect(target) },
+                    colors = NavigationDrawerItemDefaults.colors(
+                        selectedContainerColor = KaliSurfaceVar,
+                        unselectedContainerColor = KaliBgElevated,
+                        selectedTextColor = KaliTextPrimary,
+                        unselectedTextColor = KaliTextSecondary,
+                        selectedIconColor = KaliAccent,
+                        unselectedIconColor = KaliTextSecondary
+                    ),
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                )
+            }
 
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(KaliSurfaceVar)
-                .clickable(role = Role.Button) { onStar() }
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Icon(
-                Icons.Filled.Star,
-                contentDescription = "Star",
-                tint = KaliMagenta,
-                modifier = Modifier.size(18.dp)
-            )
-            Text(
-                "Star on GitHub",
-                style = MaterialTheme.typography.bodyMedium,
-                color = KaliTextPrimary
-            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(KaliSurfaceVar)
+                    .clickable(role = Role.Button) { onStar() }
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Star,
+                    contentDescription = "Star",
+                    tint = KaliMagenta,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    "Star on GitHub",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = KaliTextPrimary
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
         }
-        Spacer(modifier = Modifier.height(8.dp))
     }
 }
 

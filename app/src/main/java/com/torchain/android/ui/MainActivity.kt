@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.activity.result.contract.ActivityResultContracts
 import com.torchain.android.ui.components.AppTopBar
 import com.torchain.android.ui.components.NavTarget
 import com.torchain.android.ui.components.SidebarDrawer
@@ -32,10 +33,15 @@ import com.torchain.android.ui.screens.LogsScreen
 import com.torchain.android.ui.screens.SettingsScreen
 import com.torchain.android.ui.theme.KaliBg
 import com.torchain.android.ui.theme.TorchainTheme
-import com.torchain.android.util.TorStatusBus
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        // Permission result handled if needed
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -43,16 +49,11 @@ class MainActivity : ComponentActivity() {
         // Request notification permission for Android 13+
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+                requestPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
             }
         }
 
-        TorStatusBus.register(this)
         setContent { TorchainTheme { AppRoot() } }
-    }
-    override fun onDestroy() {
-        TorStatusBus.unregister(this)
-        super.onDestroy()
     }
 }
 
@@ -75,11 +76,15 @@ private fun AppRoot() {
                     scope.launch { drawerState.close() }
                 },
                 onStar = {
-                    val intent = android.content.Intent(
-                        android.content.Intent.ACTION_VIEW,
-                        android.net.Uri.parse("https://github.com/ctx0an/torchain")
-                    )
-                    context.startActivity(intent)
+                    try {
+                        val intent = android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://github.com/ctx0an/torchain")
+                        )
+                        context.startActivity(intent)
+                    } catch (e: android.content.ActivityNotFoundException) {
+                        e.printStackTrace()
+                    }
                 }
             )
         }

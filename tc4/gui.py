@@ -352,7 +352,8 @@ class TorChainGUI:
         self._btn(brow, "CLEAR ALL", self._clear_bridges, kind="danger").pack(side="left")
         self._btn(brow, "TEST", self._test_bridges, kind="ghost").pack(side="left", padx=SPACE["sm"])
         self._btn(brow, "FETCH FROM TOR PROJECT", self._fetch_bridges, kind="ghost").pack(side="left", padx=SPACE["sm"])
-        self.bridge_tree = self._make_tree(v, ("line",), ("CUSTOM BRIDGE LINE",), (760,))
+        self.bridge_tree = self._make_tree(v, ("use", "line"), ("USE", "CUSTOM BRIDGE LINE"), (80, 680))
+        self.bridge_tree.bind("<ButtonRelease-1>", self._on_bridge_tree_click)
 
     def _build_advanced(self):
         v = tk.Frame(self.content, bg=P.bg)
@@ -406,7 +407,7 @@ class TorChainGUI:
         sel = self.bridge_tree.selection()
         if not sel:
             return
-        line = self.bridge_tree.item(sel[0])["values"][0]
+        line = self.bridge_tree.item(sel[0])["values"][1]
         try:
             self.cfg = b.remove(str(line), self.cfg)
             self._refresh_bridges()
@@ -451,8 +452,46 @@ class TorChainGUI:
 
     def _refresh_bridges(self):
         self.bridge_tree.delete(*self.bridge_tree.get_children())
+        enabled_exists = hasattr(self.cfg, "enabled_bridges") and self.cfg.enabled_bridges is not None
         for ln in self.cfg.custom_bridges:
-            self.bridge_tree.insert("", "end", values=(ln,))
+            if enabled_exists:
+                status = "☑" if ln in self.cfg.enabled_bridges else "☐"
+            else:
+                status = "☑"
+            self.bridge_tree.insert("", "end", values=(status, ln))
+
+    def _on_bridge_tree_click(self, event):
+        region = self.bridge_tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+        column = self.bridge_tree.identify_column(event.x)
+        if column == "#1":
+            row_id = self.bridge_tree.identify_row(event.y)
+            if not row_id:
+                return
+            values = list(self.bridge_tree.item(row_id, "values"))
+            status = values[0]
+            line = values[1]
+            if status == "☑":
+                new_status = "☐"
+            else:
+                new_status = "☑"
+            values[0] = new_status
+            self.bridge_tree.item(row_id, values=values)
+            
+            if not hasattr(self.cfg, "enabled_bridges") or self.cfg.enabled_bridges is None:
+                self.cfg.enabled_bridges = []
+            
+            if new_status == "☑":
+                if line not in self.cfg.enabled_bridges:
+                    self.cfg.enabled_bridges.append(line)
+            else:
+                if line in self.cfg.enabled_bridges:
+                    self.cfg.enabled_bridges.remove(line)
+            try:
+                config_mod.save(self.cfg)
+            except TorChainError as exc:
+                self._notify(exc)
 
     # -- advanced handlers --
     def _adv(self, fn):

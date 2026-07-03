@@ -70,7 +70,7 @@ object Config {
         startOnBoot = this[Keys.START_ON_BOOT] ?: false,
         bridgesEnabled = this[Keys.BRIDGES_ENABLED] ?: false,
         bridgeTransport = this[Keys.BRIDGE_TRANSPORT] ?: "vanilla",
-        bridgeLines = (this[Keys.BRIDGE_LINES] ?: "").split('\n').filter { it.isNotBlank() },
+        bridgeLines = (this[Keys.BRIDGE_LINES] ?: "").split('\n').map { it.trim() }.filter { it.isNotBlank() },
         proxyMode = this[Keys.PROXY_MODE] ?: "vpn"
     )
 }

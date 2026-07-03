@@ -87,7 +87,11 @@ fun LeakTestScreen() {
                 onClick = {
                     running = true; results.clear()
                     scope.launch {
-                        results.addAll(tester.runFull()); running = false
+                        try {
+                            results.addAll(tester.runFull())
+                        } finally {
+                            running = false
+                        }
                     }
                 },
                 enabled = !running && status.state is TorState.Running,
@@ -98,7 +102,11 @@ fun LeakTestScreen() {
                 onClick = {
                     running = true; results.clear()
                     scope.launch {
-                        results.addAll(tester.runQuick()); running = false
+                        try {
+                            results.addAll(tester.runQuick())
+                        } finally {
+                            running = false
+                        }
                     }
                 },
                 enabled = !running,

@@ -16,6 +16,10 @@ object TorStatusBus {
     private val _status = MutableStateFlow(TorStatus())
     val status: StateFlow<TorStatus> = _status.asStateFlow()
 
+    fun update(newStatus: TorStatus) {
+        _status.value = newStatus
+    }
+
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != TorService.ACTION_STATUS) return

@@ -22,12 +22,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import com.torchain.android.util.TorStatusBus
 
 class TorService : LifecycleService() {
 
     private lateinit var tor: TorController
     private var statusJob: Job? = null
     @Volatile private var proxyMode: String = "vpn"
+    private var lastStartId: Int = -1
 
     // Guards so the VPN is started exactly once per successful Tor bootstrap and
     // never races with a stop / error path. These fix the original 15%-bootstrap
@@ -55,6 +59,7 @@ class TorService : LifecycleService() {
             tor.status.collect { s ->
                 updateNotification(s)
                 broadcastState(s)
+                TorStatusBus.update(s)
                 when (s.state) {
                     is TorState.Running -> {
                         // KEY FIX: only bring the VPN up once Tor is fully
@@ -100,6 +105,7 @@ class TorService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        lastStartId = startId
         when (intent?.action) {
             ACTION_START -> startTor()
             ACTION_STOP  -> stopTor()
@@ -116,6 +122,14 @@ class TorService : LifecycleService() {
             startRequested = true
             vpnStarted = false
             Logger.i("TorService", "Starting Tor with config: exitCountry=${config.exitCountry} blockIpv6=${config.blockIpv6} bridges=${config.bridgesEnabled} proxyMode=${config.proxyMode}")
+            if (config.watchdogEnabled) {
+                try {
+                    WatchdogService.start(this@TorService)
+                    Logger.i("TorService", "WatchdogService started automatically")
+                } catch (e: Exception) {
+                    Logger.e("TorService", "Failed to start WatchdogService", e)
+                }
+            }
             val ok = tor.start(config)
             if (ok) {
                 if (config.proxyMode == "socks5") {
@@ -129,6 +143,9 @@ class TorService : LifecycleService() {
             } else {
                 Logger.e("TorService", "Tor.start() returned false — service will not start")
                 startRequested = false
+                try {
+                    WatchdogService.stop(this@TorService)
+                } catch (_: Exception) {}
             }
         }
     }
@@ -164,10 +181,14 @@ class TorService : LifecycleService() {
             } else {
                 Logger.i("TorService", "SOCKS5 mode — no VPN service to stop")
             }
+            try {
+                WatchdogService.stop(this@TorService)
+                Logger.i("TorService", "WatchdogService stop requested")
+            } catch (e: Exception) { Logger.w("TorService", "stop watchdog failed", e) }
             tor.stop()
             Logger.i("TorService", "Tor stopped")
             stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            stopSelf(lastStartId)
         }
     }
 
@@ -230,11 +251,14 @@ class TorService : LifecycleService() {
             } catch (_: Exception) {}
         }
         try {
+            WatchdogService.stop(this)
+        } catch (_: Exception) {}
+        try {
             stopForeground(STOP_FOREGROUND_REMOVE)
             val nm = getSystemService(NotificationManager::class.java)
             nm?.cancel(NOTIF_ID)
         } catch (_: Exception) {}
-        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+        runBlocking(Dispatchers.IO) {
             tor.stop()
         }
         super.onDestroy()

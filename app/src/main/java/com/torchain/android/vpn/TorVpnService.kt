@@ -14,6 +14,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.ensureActive
 import java.io.File
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -40,12 +42,12 @@ import java.net.Socket
  */
 class TorVpnService : VpnService() {
 
-    private var tunFd: ParcelFileDescriptor? = null
+    @Volatile private var tunFd: ParcelFileDescriptor? = null
     @Volatile private var running = false
     @Volatile private var isStarting = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private var localProxy: LocalSocksProxy? = null
-    private var tproxyThread: Thread? = null
+    @Volatile private var localProxy: LocalSocksProxy? = null
+    @Volatile private var tproxyThread: Thread? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
@@ -131,14 +133,14 @@ class TorVpnService : VpnService() {
                 .addAddress(VPN_ADDRESS, 30)
                 .addRoute("0.0.0.0", 0)
                 // IPv6 support: route all IPv6 traffic into the tunnel to prevent leaks
-                .addAddress(VPN_ADDRESS_V6, 128)
+                .addAddress(VPN_ADDRESS_V6, 120)
                 .addRoute("::", 0)
                 .addDnsServer(VPN_DNS)
                 .addDnsServer(VPN_DNS_V6)
                 .setMtu(VPN_MTU)
                 .setBlocking(false)
 
-            Logger.i("vpn", "VpnService.Builder configured: IPv4=$VPN_ADDRESS/30 IPv6=$VPN_ADDRESS_V6/128 DNS=$VPN_DNS,$VPN_DNS_V6 MTU=$VPN_MTU")
+            Logger.i("vpn", "VpnService.Builder configured: IPv4=$VPN_ADDRESS/30 IPv6=$VPN_ADDRESS_V6/120 DNS=$VPN_DNS,$VPN_DNS_V6 MTU=$VPN_MTU")
 
             try {
                 builder.addDisallowedApplication(packageName)
@@ -159,6 +161,7 @@ class TorVpnService : VpnService() {
             builder.setConfigureIntent(pi)
 
             Logger.i("vpn", "Calling VpnService.Builder.establish()...")
+            coroutineContext.ensureActive()
             val pfd = builder.establish()
             if (pfd == null) {
                 throw java.lang.IllegalStateException("VpnService.establish() returned null — user may have revoked VPN permission")
@@ -184,6 +187,7 @@ class TorVpnService : VpnService() {
             //    Keeping a reference to this thread lets teardown() join it before
             //    closing the TUN fd, which avoids the native reader hitting EBADF.
             Logger.i("vpn", "Starting TProxy native library background thread...")
+            coroutineContext.ensureActive()
             val worker = Thread({
                 try {
                     Logger.i("vpn-tproxy", "Calling TProxyStartService...")
@@ -195,6 +199,9 @@ class TorVpnService : VpnService() {
                     // gracefully instead of leaving a half-open VPN.
                     if (running) {
                         updateTorStateError("VPN tunnel crashed: ${t.message}")
+                    }
+                } finally {
+                    if (running) {
                         stopSelfSafely()
                     }
                 }

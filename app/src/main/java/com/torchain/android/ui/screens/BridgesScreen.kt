@@ -24,10 +24,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,7 +58,8 @@ fun BridgesScreen() {
     val cfg by Config.flow(context).collectAsState(initial = TorchainConfig())
     val scope = rememberCoroutineScope()
     var newBridge by remember { mutableStateOf("") }
-    val testResults = remember { mutableStateListOf<Pair<String, Pair<Boolean, Long>>>() }
+    val testingBridges: SnapshotStateMap<String, Boolean> = remember { mutableStateMapOf() }
+    val testResults: SnapshotStateMap<String, Pair<Boolean, Long>> = remember { mutableStateMapOf() }
     var fetching by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
 
@@ -193,7 +196,7 @@ fun BridgesScreen() {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(cfg.bridgeLines.withIndex().toList()) { (i, line) ->
-                    val result = testResults.firstOrNull { it.first == line }?.second
+                    val result = testResults[line]
                     Row(
                         modifier = Modifier.fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
@@ -213,15 +216,21 @@ fun BridgesScreen() {
                                     fontWeight = FontWeight.Bold)
                             }
                         }
+                        val isTesting = testingBridges[line] ?: false
                         OutlinedButton(
                             onClick = {
                                 scope.launch {
-                                    val r = BridgeManager.test(line)
-                                    testResults.removeAll { it.first == line }
-                                    testResults.add(line to r)
+                                    testingBridges[line] = true
+                                    try {
+                                        val r = BridgeManager.test(line)
+                                        testResults[line] = r
+                                    } finally {
+                                        testingBridges[line] = false
+                                    }
                                 }
-                            }
-                        ) { Text("TEST") }
+                            },
+                            enabled = !isTesting
+                        ) { Text(if (isTesting) "TESTING..." else "TEST") }
                         OutlinedButton(
                             onClick = {
                                 scope.launch {

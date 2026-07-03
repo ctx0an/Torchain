@@ -73,6 +73,8 @@ def _detect_transport(lines: list[str]) -> str | None:
 def add(lines, cfg: Config | None = None) -> Config:
     """Add one or more custom bridge lines (string or list)."""
     cfg = cfg or config_mod.load()
+    if not hasattr(cfg, "enabled_bridges") or cfg.enabled_bridges is None:
+        cfg.enabled_bridges = []
     if isinstance(lines, str):
         lines = [lines]
     added = 0
@@ -86,6 +88,8 @@ def add(lines, cfg: Config | None = None) -> Config:
         if line not in cfg.custom_bridges:
             cfg.custom_bridges.append(line)
             added += 1
+            if line not in cfg.enabled_bridges:
+                cfg.enabled_bridges.append(line)
     # Auto-align bridge_type with the transport detected in the added lines so
     # the correct ClientTransportPlugin is registered (fixes pasting a webtunnel
     # line while bridge_type is still the default 'obfs4').
@@ -100,16 +104,23 @@ def add(lines, cfg: Config | None = None) -> Config:
 
 def remove(index_or_line, cfg: Config | None = None) -> Config:
     cfg = cfg or config_mod.load()
+    if not hasattr(cfg, "enabled_bridges") or cfg.enabled_bridges is None:
+        cfg.enabled_bridges = []
     if isinstance(index_or_line, int):
         if 0 <= index_or_line < len(cfg.custom_bridges):
-            cfg.custom_bridges.pop(index_or_line)
+            line = cfg.custom_bridges.pop(index_or_line)
+            if line in cfg.enabled_bridges:
+                cfg.enabled_bridges.remove(line)
         else:
             raise ConfigError(f"no bridge at index {index_or_line}")
     else:
+        line = index_or_line.strip()
         try:
-            cfg.custom_bridges.remove(index_or_line.strip())
+            cfg.custom_bridges.remove(line)
         except ValueError as exc:
             raise ConfigError("that bridge line is not in the list") from exc
+        if line in cfg.enabled_bridges:
+            cfg.enabled_bridges.remove(line)
     config_mod.save(cfg)
     return cfg
 
@@ -117,6 +128,7 @@ def remove(index_or_line, cfg: Config | None = None) -> Config:
 def clear(cfg: Config | None = None) -> Config:
     cfg = cfg or config_mod.load()
     cfg.custom_bridges = []
+    cfg.enabled_bridges = []
     config_mod.save(cfg)
     log.info("cleared all custom bridges")
     return cfg
@@ -184,13 +196,19 @@ def append_fetched(transport: str = "obfs4", url: str | None = None,
                    cfg: Config | None = None) -> Config:
     """Fetch bridge lines and append them to the config."""
     cfg = cfg or config_mod.load()
+    if not hasattr(cfg, "enabled_bridges") or cfg.enabled_bridges is None:
+        cfg.enabled_bridges = []
     fetched = fetch_bridges(transport=transport, url=url)
     added = 0
+    enabled_changed = False
     for ln in fetched:
         if ln not in cfg.custom_bridges:
             cfg.custom_bridges.append(ln)
             added += 1
-    if added:
+        if ln not in cfg.enabled_bridges:
+            cfg.enabled_bridges.append(ln)
+            enabled_changed = True
+    if added or enabled_changed:
         detected = _detect_transport(fetched)
         if detected and cfg.bridge_type != detected:
             cfg.bridge_type = detected

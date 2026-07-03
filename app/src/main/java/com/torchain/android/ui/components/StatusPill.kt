@@ -104,8 +104,8 @@ fun BootstrapBar(progress: Int, tag: String, modifier: Modifier = Modifier) {
         }
         Box(modifier = Modifier
             .fillMaxWidth()
-            .height(6.dp)
             .padding(top = 4.dp)
+            .height(6.dp)
             .clip(RoundedCornerShape(50))
             .background(KaliBgElevated)) {
             LinearProgressIndicator(

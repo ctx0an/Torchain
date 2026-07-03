@@ -74,6 +74,8 @@ def run(
         )
     except FileNotFoundError as exc:
         raise DependencyError(f"executable not found: {cmd[0]}") from exc
+    except OSError as exc:
+        raise CommandError(cmd, -1, f"Failed to execute command: {exc}") from exc
     except subprocess.TimeoutExpired as exc:
         raise TimeoutError_(
             f"command timed out after {timeout:g}s: {' '.join(cmd)}"

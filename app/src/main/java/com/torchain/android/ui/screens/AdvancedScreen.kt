@@ -19,6 +19,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,10 +35,17 @@ import com.torchain.android.ui.theme.KaliSurface
 import com.torchain.android.ui.theme.KaliTextPrimary
 import com.torchain.android.ui.theme.KaliTextSecondary
 import com.torchain.android.ui.theme.KaliWarning
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun AdvancedScreen() {
     val context = LocalContext.current
+    val hypervisorState by produceState(initialValue = "Checking...") {
+        withContext(Dispatchers.IO) {
+            value = detectHypervisor()
+        }
+    }
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -66,7 +75,7 @@ fun AdvancedScreen() {
                 EnvRow("OS", "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
                 EnvRow("Device", "${Build.MANUFACTURER} ${Build.MODEL}")
                 EnvRow("ABIs", Build.SUPPORTED_ABIS.joinToString(", "))
-                EnvRow("Hypervisor", detectHypervisor())
+                EnvRow("Hypervisor", hypervisorState)
                 EnvRow("Init system", "Android system_server + zygote")
             }
         }

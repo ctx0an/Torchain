@@ -243,6 +243,12 @@ class TorController(private val context: Context) {
                     Logger.i("tor", "SOCKS proxy :$socksPort is accepting connections")
                 }
 
+                val proc = process
+                if (proc == null || !proc.isAlive || _status.value.state is TorState.Error) {
+                    val err = (_status.value.state as? TorState.Error)?.message ?: "Tor process exited before bootstrap"
+                    throw IOException(err)
+                }
+
                 _status.value = _status.value.copy(
                     state = TorState.Bootstrapping(0, "starting"),
                     message = "Bootstrapping...")
@@ -402,7 +408,8 @@ class TorController(private val context: Context) {
             try {
                 Logger.i("tor", "Querying exit IP over Tor SOCKS proxy...")
                 val url = java.net.URL("https://api.ipify.org")
-                val proxy = java.net.Proxy(java.net.Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", 9050))
+                val port = _status.value.socksPort.takeIf { it > 0 } ?: 9050
+                val proxy = java.net.Proxy(java.net.Proxy.Type.SOCKS, InetSocketAddress.createUnresolved("127.0.0.1", port))
                 val con = withContext(Dispatchers.IO) {
                     url.openConnection(proxy) as java.net.HttpURLConnection
                 }
@@ -473,6 +480,16 @@ class TorController(private val context: Context) {
     private suspend fun stopInternal() = withContext(Dispatchers.IO) {
         if (stopping) return@withContext
         stopping = true
+
+        // Stop pluggable transports
+        try {
+            IPtProxy.IPtProxy.stopLyrebird()
+            IPtProxy.IPtProxy.stopSnowflake()
+            Logger.i("tor-pt", "Pluggable transports stopped")
+        } catch (e: Exception) {
+            Logger.w("tor-pt", "Failed to stop pluggable transports", e)
+        }
+
         if (!torRunning) {
             stopping = false
             return@withContext
@@ -486,15 +503,6 @@ class TorController(private val context: Context) {
             Logger.w("tor", "control close failed", e)
         }
         control = null
-
-        // Stop pluggable transports
-        try {
-            IPtProxy.IPtProxy.stopLyrebird()
-            IPtProxy.IPtProxy.stopSnowflake()
-            Logger.i("tor-pt", "Pluggable transports stopped")
-        } catch (e: Exception) {
-            Logger.w("tor-pt", "Failed to stop pluggable transports", e)
-        }
 
         try {
             process?.destroy()
@@ -510,6 +518,15 @@ class TorController(private val context: Context) {
             process?.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
         } catch (_: Exception) {}
         process = null
+
+        // Delete the control_auth_cookie file during teardown
+        try {
+            if (cookieFile.exists()) {
+                cookieFile.delete()
+            }
+        } catch (e: Exception) {
+            Logger.w("tor", "Failed to delete control cookie file", e)
+        }
 
         // Only reset to a clean Stopped state if the caller/watcher hasn't
         // already published an Error. This lets the UI show *why* Tor died
