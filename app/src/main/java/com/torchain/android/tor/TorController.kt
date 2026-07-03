@@ -243,8 +243,8 @@ class TorController(private val context: Context) {
                     Logger.i("tor", "SOCKS proxy :$socksPort is accepting connections")
                 }
 
-                val proc = process
-                if (proc == null || !proc.isAlive || _status.value.state is TorState.Error) {
+                val activeProc = process
+                if (activeProc == null || !activeProc.isAlive || _status.value.state is TorState.Error) {
                     val err = (_status.value.state as? TorState.Error)?.message ?: "Tor process exited before bootstrap"
                     throw IOException(err)
                 }
