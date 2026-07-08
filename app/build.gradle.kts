@@ -5,7 +5,8 @@ plugins {
 
 android {
     namespace = "com.torchain.android"
-    compileSdk = 34
+    compileSdk = 36
+    buildToolsVersion = "36.1.0"
 
     defaultConfig {
         applicationId = "com.torchain.android"
@@ -15,11 +16,10 @@ android {
         versionName = "5.0.1-android"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
-        // Ship arm64 + armeabi-v7a only. This covers >99% of Android phones and
-        // keeps the APK under the 100MB upload limit of common file hosts.
-        // x86 / x86_64 are emulators only; users on emulators can rebuild with
-        // the full abiFilters list if needed.
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+        // Support all four ABIs (arm64-v8a, armeabi-v7a, x86, x86_64) to support both
+        // production devices and emulator testing. We use ABI splits to keep individual
+        // production APK sizes small and prevent translation-related crashes on emulators.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64") }
     }
 
     buildTypes {
@@ -40,6 +40,14 @@ android {
     packaging {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
         jniLibs { useLegacyPackaging = true }
+    }
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+            isUniversalApk = true
+        }
     }
     sourceSets {
         getByName("main") {
@@ -71,8 +79,8 @@ dependencies {
 tasks.register("assertNativeLibsExist") {
     doLast {
         val jniLibsDir = file("src/main/jniLibs")
-        // Only assert the ABIs we actually ship (see ndk.abiFilters above).
-        val abis = listOf("arm64-v8a", "armeabi-v7a")
+        // Assert all four ABIs we ship.
+        val abis = listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
         val requiredLibs = listOf("libtor.so", "libhev-socks5-tunnel.so")
 
         for (abi in abis) {
